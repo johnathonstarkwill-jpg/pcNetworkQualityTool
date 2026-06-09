@@ -1,0 +1,203 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #172026;
+  background: #f4f7f9;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 8px;
+  background: #1261a6;
+  color: #fff;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 650;
+  min-height: 56px;
+  padding: 0 24px;
+}
+
+button:hover {
+  background: #0d4f88;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.role-panel,
+.panel {
+  background: #fff;
+  border: 1px solid #d9e2e8;
+  border-radius: 8px;
+}
+
+.role-panel {
+  width: min(760px, 100%);
+  padding: 40px;
+}
+
+.role-panel h1,
+.topbar h1 {
+  margin: 0 0 12px;
+  font-size: 34px;
+}
+
+.role-panel p,
+.topbar p,
+.empty {
+  color: #52636f;
+  font-size: 18px;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.role-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.workspace {
+  min-height: 100vh;
+  padding: 28px;
+}
+
+.topbar {
+  align-items: center;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.secondary {
+  background: #dce7ee;
+  color: #172026;
+}
+
+.secondary:hover {
+  background: #c8d8e2;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 360px) 1fr;
+  gap: 20px;
+}
+
+.panel {
+  padding: 24px;
+}
+
+.panel h2 {
+  font-size: 22px;
+  margin: 0 0 18px;
+}
+
+.suite-list {
+  display: grid;
+  gap: 12px;
+}
+
+.suite-button {
+  align-items: flex-start;
+  background: #eef3f6;
+  color: #172026;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+  min-height: 76px;
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.suite-button:hover {
+  background: #dce7ee;
+}
+
+.suite-button span {
+  color: #52636f;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.manual-ip {
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+}
+
+.manual-ip input {
+  border: 1px solid #b9c8d3;
+  border-radius: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+@media (max-width: 760px) {
+  .role-actions,
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+.address-list,
+.client-list,
+.server-list {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.address-list li {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px;
+}
+
+.client-list li,
+.server-list li {
+  font-size: 16px;
+}
+
+.test-block {
+  margin-top: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.result-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.result-table th,
+.result-table td {
+  border: 1px solid #d9e2e8;
+  padding: 8px;
+  text-align: left;
+}
+
+.result-table th {
+  background: #eef3f6;
+}
