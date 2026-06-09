@@ -14,6 +14,8 @@ const TARGETS = [
   {
     dir: "win32-x64",
     binary: "iperf3.exe",
+    // PLACEHOLDER: iperf.fr ships a ZIP with iperf3.exe + cygwin1.dll; a bare
+    // .exe will not launch. Replace per assets/iperf3/README.md before packaging.
     url: "https://iperf.fr/download/windows/iperf-3.1.3-win64.exe"
   },
   {
