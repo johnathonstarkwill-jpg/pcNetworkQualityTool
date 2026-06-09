@@ -12,9 +12,12 @@ export class IperfServer {
 
   start(port: number = IPERF_PORT): void {
     if (this.child) return;
-    this.child = spawn(resolveIperfBinary(), buildServerArgs(port), { windowsHide: true });
+    this.child = spawn(resolveIperfBinary(), buildServerArgs(port), { windowsHide: true, stdio: "ignore" });
     // Keep the process from crashing the app if iperf3 writes to a closed pipe.
     this.child.on("error", () => {
+      this.child = undefined;
+    });
+    this.child.on("close", () => {
       this.child = undefined;
     });
   }
