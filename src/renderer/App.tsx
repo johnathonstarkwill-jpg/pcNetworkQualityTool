@@ -48,6 +48,12 @@ export function App() {
 }
 
 function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => void }) {
+  const [reportHtml, setReportHtml] = useState<string>("");
+
+  async function previewReport() {
+    setReportHtml(await window.networkTool.getSampleReportHtml());
+  }
+
   return (
     <main className="workspace">
       <header className="topbar">
@@ -74,6 +80,12 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
               </button>
             ))}
           </div>
+          <button type="button" className="secondary" onClick={() => void previewReport()}>
+            预览报告
+          </button>
+          {reportHtml ? (
+            <div className="report-preview" dangerouslySetInnerHTML={{ __html: reportHtml }} />
+          ) : null}
         </div>
       </section>
     </main>

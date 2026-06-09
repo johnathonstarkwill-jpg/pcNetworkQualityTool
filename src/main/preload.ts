@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("networkTool", {
   getClientState: () => ipcRenderer.invoke("client:get-state") as Promise<unknown>,
   getPermissionGuidance: () => ipcRenderer.invoke("permissions:get-guidance") as Promise<unknown>,
   getRole: () => ipcRenderer.invoke("app:get-role") as Promise<AppRole>,
+  getSampleReportHtml: () => ipcRenderer.invoke("reports:sample-html") as Promise<string>,
   getServerState: () => ipcRenderer.invoke("server:get-state") as Promise<unknown>,
   listTestSuites: () => ipcRenderer.invoke("tests:list-suites") as Promise<unknown>,
   setRole: (role: AppRole) => ipcRenderer.invoke("app:set-role", role) as Promise<AppRole>
