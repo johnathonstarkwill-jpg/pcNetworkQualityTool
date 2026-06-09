@@ -82,7 +82,14 @@ export function resolveIperfBinary(): string {
   const platformDir = `${process.platform}-${process.arch}`;
   const binaryName = process.platform === "win32" ? "iperf3.exe" : "iperf3";
 
-  return path.join(__dirname, "../../assets/iperf3", platformDir, binaryName);
+  // In a packaged Electron app, extraResources land in process.resourcesPath.
+  // electron-builder maps assets/iperf3 -> <resources>/iperf3.
+  const isPackaged = Boolean(process.resourcesPath) && __dirname.includes("app.asar");
+  const baseDir = isPackaged
+    ? path.join(process.resourcesPath as string, "iperf3")
+    : path.join(__dirname, "../../assets/iperf3");
+
+  return path.join(baseDir, platformDir, binaryName);
 }
 
 interface IperfJson {
