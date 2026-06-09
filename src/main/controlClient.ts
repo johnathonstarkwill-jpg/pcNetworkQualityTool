@@ -13,6 +13,7 @@ export class ControlClient extends EventEmitter {
   private statusText = "正在搜索服务器";
   private lastResult: PhaseMetrics[] | undefined;
   private socket: net.Socket | undefined;
+  private intentionalClose = false;
   private readonly identity: ConnectedClient = {
     id: `client-${os.hostname()}-${process.pid}`,
     name: os.hostname(),
@@ -48,6 +49,7 @@ export class ControlClient extends EventEmitter {
 
   connectToAddress(address: string, port: number = CONTROL_PORT, server?: DiscoveredServer): void {
     this.disconnect();
+    this.intentionalClose = false;
     this.status = "connecting";
     this.statusText = "正在连接服务器";
     this.connectedServer = server ?? {
@@ -78,8 +80,16 @@ export class ControlClient extends EventEmitter {
       }
     });
 
-    socket.on("error", () => this.fail("连接失败，请检查服务器 IP 与防火墙设置"));
+    let settled = false;
+    socket.on("error", (error: Error) => {
+      if (settled || this.intentionalClose) return;
+      settled = true;
+      console.error("control client socket error:", error.message);
+      this.fail("连接失败，请检查服务器 IP 与防火墙设置");
+    });
     socket.on("close", () => {
+      if (settled || this.intentionalClose) return;
+      settled = true;
       if (this.status === "connected") {
         this.status = "error";
         this.statusText = "与服务器的连接已断开";
@@ -91,6 +101,7 @@ export class ControlClient extends EventEmitter {
   // Manual cross-machine test: one short TCP-upload + one UDP-quality run
   // against the connected server. Returns nothing; results land in state.
   async runManualTest(): Promise<void> {
+    if (this.status === "testing") return;
     const host = this.connectedServer?.address;
     if (!host) {
       this.fail("尚未连接服务器，无法测试");
@@ -115,6 +126,7 @@ export class ControlClient extends EventEmitter {
   }
 
   disconnect(): void {
+    this.intentionalClose = true;
     this.socket?.destroy();
     this.socket = undefined;
   }
