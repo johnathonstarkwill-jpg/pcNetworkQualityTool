@@ -3,4 +3,7 @@ dist/
 release/
 test-results/
 .DS_Store
+# iperf3 binaries are fetched per build machine, never committed (keep README)
+/assets/iperf3/*
+!/assets/iperf3/README.md
 npm-debug.log*
