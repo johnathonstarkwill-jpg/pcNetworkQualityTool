@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { encode } from "../../src/main/controlProtocol";
 import { ControlServer } from "../../src/main/controlServer";
+import { ControlClient } from "../../src/main/controlClient";
 import net from "node:net";
 
 let server: ControlServer | undefined;
@@ -85,5 +86,27 @@ describe("ControlServer over TCP", () => {
     expect(JSON.parse(line.trim())).toEqual({ type: "error", message: "hello" });
 
     socket.destroy();
+  });
+});
+
+describe("ControlClient over TCP", () => {
+  it("connects to a server and reaches connected status", async () => {
+    const srv = new ControlServer();
+    const port = await srv.listen(0);
+
+    const client = new ControlClient();
+    const connected = new Promise((resolve) => {
+      client.on("state", (state) => {
+        if (state.status === "connected") resolve(state);
+      });
+    });
+
+    client.connectToAddress("127.0.0.1", port);
+    const state: any = await connected;
+    expect(state.status).toBe("connected");
+    expect(state.connectedServer?.address).toBe("127.0.0.1");
+
+    client.disconnect();
+    await srv.close();
   });
 });
