@@ -12,7 +12,8 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "package": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "fetch:iperf3": "node scripts/fetch-iperf3.mjs"
   },
   "dependencies": {
     "electron-is-dev": "^3.0.1",
