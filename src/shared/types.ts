@@ -90,6 +90,8 @@ export interface ServerSessionState {
   clients: ConnectedClient[];
   activePlan?: TestPlan;
   latestReport?: TestReport;
+  listening: boolean;
+  localAddresses: string[];
 }
 
 export interface ClientSessionState {
@@ -98,4 +100,5 @@ export interface ClientSessionState {
   connectedServer?: DiscoveredServer;
   status: "searching" | "connecting" | "connected" | "testing" | "error";
   statusText: string;
+  lastResult?: PhaseMetrics[];
 }
