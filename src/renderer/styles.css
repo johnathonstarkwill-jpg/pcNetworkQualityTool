@@ -159,3 +159,45 @@ button:hover {
     flex-direction: column;
   }
 }
+
+.address-list,
+.client-list,
+.server-list {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.address-list li {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 18px;
+}
+
+.client-list li,
+.server-list li {
+  font-size: 16px;
+}
+
+.test-block {
+  margin-top: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.result-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.result-table th,
+.result-table td {
+  border: 1px solid #d9e2e8;
+  padding: 8px;
+  text-align: left;
+}
+
+.result-table th {
+  background: #eef3f6;
+}
