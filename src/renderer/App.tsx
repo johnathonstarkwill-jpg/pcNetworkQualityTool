@@ -12,11 +12,16 @@ export function App() {
   const [suites, setSuites] = useState<SuiteView[]>([]);
 
   useEffect(() => {
+    if (!window.networkTool) return;
     void window.networkTool.getRole().then(setRoleState);
     void window.networkTool.listTestSuites().then(setSuites);
   }, []);
 
   async function setRole(nextRole: AppRole) {
+    if (!window.networkTool) {
+      setRoleState(nextRole);
+      return;
+    }
     const savedRole = await window.networkTool.setRole(nextRole);
     setRoleState(savedRole);
   }
