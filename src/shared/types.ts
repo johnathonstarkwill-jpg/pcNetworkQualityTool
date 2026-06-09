@@ -76,3 +76,26 @@ export interface TestReport {
   results: ClientTestResult[];
   summary: ReportSummary;
 }
+
+export type ControlMessage =
+  | { type: "register-client"; client: ConnectedClient }
+  | { type: "client-registered"; clientId: string }
+  | { type: "start-test"; plan: TestPlan; serverAddress: string }
+  | { type: "phase-result"; clientId: string; metrics: PhaseMetrics }
+  | { type: "test-complete"; clientId: string }
+  | { type: "error"; message: string };
+
+export interface ServerSessionState {
+  role: "server";
+  clients: ConnectedClient[];
+  activePlan?: TestPlan;
+  latestReport?: TestReport;
+}
+
+export interface ClientSessionState {
+  role: "client";
+  discoveredServers: DiscoveredServer[];
+  connectedServer?: DiscoveredServer;
+  status: "searching" | "connecting" | "connected" | "testing" | "error";
+  statusText: string;
+}
