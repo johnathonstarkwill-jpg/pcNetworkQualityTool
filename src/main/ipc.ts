@@ -2,6 +2,7 @@ import { type WebContents, ipcMain } from "electron";
 import { ControlClient } from "./controlClient.js";
 import { ControlServer } from "./controlServer.js";
 import { DISCOVERY_PORT, DiscoveryBroadcaster, DiscoveryScanner } from "./discovery.js";
+import { CONTROL_PORT } from "./controlProtocol.js";
 import { IperfServer } from "./iperfServer.js";
 import { listLocalIpv4Addresses } from "./netInfo.js";
 import { getPermissionGuidance } from "./permissions.js";
@@ -27,9 +28,9 @@ export function registerIpcHandlers(getWebContents: () => WebContents | undefine
 
   ipcMain.handle("app:get-role", () => role);
 
-  ipcMain.handle("app:set-role", (_event, nextRole: AppRole) => {
+  ipcMain.handle("app:set-role", async (_event, nextRole: AppRole) => {
     role = nextRole;
-    stopNetworking();
+    await stopNetworking();
 
     if (nextRole === "server") startServer();
     if (nextRole === "client") startClient();
@@ -84,33 +85,36 @@ export function registerIpcHandlers(getWebContents: () => WebContents | undefine
 
 function startServer(): void {
   const localAddress = listLocalIpv4Addresses()[0] ?? "127.0.0.1";
-  void server.listen();
+  server.listen().catch((error: unknown) => {
+    console.error("control server failed to listen:", error instanceof Error ? error.message : error);
+  });
   iperfServer.start();
 
   const advertised: Omit<DiscoveredServer, "lastSeenAt"> = {
     id: `server-${os.hostname()}`,
     name: os.hostname(),
     address: localAddress,
-    port: 48200
+    port: CONTROL_PORT
   };
   broadcaster = new DiscoveryBroadcaster(advertised);
   broadcaster.start();
 }
 
 function startClient(): void {
+  client.clearDiscoveredServers();
   scanner = new DiscoveryScanner();
   scanner.on("server", (discovered: DiscoveredServer) => client.upsertDiscoveredServer(discovered));
   scanner.start();
 }
 
-function stopNetworking(): void {
+async function stopNetworking(): Promise<void> {
   broadcaster?.stop();
   broadcaster = undefined;
   scanner?.stop();
   scanner = undefined;
   iperfServer.stop();
   client.disconnect();
-  void server.close();
+  await server.close();
 }
 
 // Exposed so tests / future shutdown hooks can reference the discovery port.

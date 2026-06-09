@@ -38,6 +38,11 @@ export class ControlClient extends EventEmitter {
     this.emit("state", this.getState());
   }
 
+  clearDiscoveredServers(): void {
+    this.discoveredServers.clear();
+    this.emit("state", this.getState());
+  }
+
   connect(serverId: string): void {
     const server = this.discoveredServers.get(serverId);
     if (!server) {
