@@ -7,8 +7,10 @@ import { registerIpcHandlers } from "./ipc.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+let mainWindow: BrowserWindow | undefined;
+
 async function createWindow(): Promise<void> {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 960,
@@ -23,13 +25,13 @@ async function createWindow(): Promise<void> {
   });
 
   if (isDev) {
-    await win.loadURL("http://127.0.0.1:5173");
+    await mainWindow.loadURL("http://127.0.0.1:5173");
   } else {
-    await win.loadFile(path.join(__dirname, "../renderer/index.html"));
+    await mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   }
 }
 
-registerIpcHandlers();
+registerIpcHandlers(() => mainWindow?.webContents);
 
 app.whenReady().then(createWindow);
 
