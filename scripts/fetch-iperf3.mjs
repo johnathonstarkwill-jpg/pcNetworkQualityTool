@@ -2,7 +2,7 @@
 // Idempotent: skips a target that already has the binary. Run before packaging:
 //   npm run fetch:iperf3
 import { createWriteStream } from "node:fs";
-import { chmod, mkdir, stat } from "node:fs/promises";
+import { chmod, mkdir, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 
@@ -53,7 +53,14 @@ for (const target of TARGETS) {
 
   await mkdir(dir, { recursive: true });
   console.log(`downloading ${target.dir} <- ${target.url}`);
-  await download(target.url, dest);
+  try {
+    await download(target.url, dest);
+  } catch (error) {
+    await unlink(dest).catch(() => {
+      // file may not have been created; ignore
+    });
+    throw error;
+  }
   if (!target.binary.endsWith(".exe")) await chmod(dest, 0o755);
   console.log(`done ${target.dir}`);
 }
