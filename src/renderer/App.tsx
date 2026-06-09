@@ -14,7 +14,7 @@ export function App() {
   useEffect(() => {
     if (!window.networkTool) return;
     void window.networkTool.getRole().then(setRoleState);
-    void window.networkTool.listTestSuites().then((value) => setSuites(value as SuiteView[]));
+    void window.networkTool.listTestSuites().then(setSuites);
   }, []);
 
   async function setRole(nextRole: AppRole) {
@@ -94,7 +94,7 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
             <ul className="client-list">
               {state.clients.map((c) => (
                 <li key={c.id}>
-                  {c.name}（{c.address}）— {c.status}
+                  {c.name}（{c.address}）— {CLIENT_STATUS_LABELS[c.status]}
                 </li>
               ))}
             </ul>
@@ -211,6 +211,12 @@ function ClientScreen({ onBack }: { onBack: () => void }) {
     </main>
   );
 }
+
+const CLIENT_STATUS_LABELS: Record<"connected" | "testing" | "disconnected", string> = {
+  connected: "已连接",
+  testing: "测试中",
+  disconnected: "已断开"
+};
 
 function format(value: number | undefined): string {
   return value === undefined ? "-" : value.toFixed(2);
