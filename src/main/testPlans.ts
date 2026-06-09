@@ -40,9 +40,9 @@ const TEST_SUITES: TestSuiteDefinition[] = [
 
 const PHASE_LABELS: Record<TestPhase["kind"], string> = {
   connectivity: "连通性检查",
-  latency: "延迟测试",
-  "tcp-upload": "TCP 上传",
-  "tcp-download": "TCP 下载",
+  latency: "延迟采样",
+  "tcp-upload": "TCP 上行吞吐量",
+  "tcp-download": "TCP 下行吞吐量",
   "udp-quality": "UDP 质量"
 };
 
