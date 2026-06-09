@@ -40,4 +40,20 @@ describe("testPlans", () => {
 
     expect(plan.phases.some((phase) => phase.durationSeconds === 3600)).toBe(true);
   });
+
+  it("rejects invalid runtime run modes", () => {
+    expect(() => buildTestPlan("quick-check", "batch" as unknown as "single")).toThrow(
+      /Invalid run mode/
+    );
+  });
+
+  it("rejects invalid custom durations", () => {
+    const invalidDurations = [Number.NaN, Number.POSITIVE_INFINITY, 0, -1];
+
+    for (const durationSeconds of invalidDurations) {
+      expect(() =>
+        buildTestPlan("long-stability", "single", { durationSeconds })
+      ).toThrow(/Invalid duration/);
+    }
+  });
 });

@@ -46,6 +46,8 @@ const PHASE_LABELS: Record<TestPhase["kind"], string> = {
   "udp-quality": "UDP 质量"
 };
 
+const RUN_MODES: TestPlan["runMode"][] = ["single", "separate", "concurrent"];
+
 export function listTestSuites(): TestSuiteDefinition[] {
   return TEST_SUITES.map((suite) => ({ ...suite }));
 }
@@ -61,12 +63,27 @@ export function buildTestPlan(
     throw new Error(`Unknown test suite: ${suiteId}`);
   }
 
+  validateRunMode(runMode);
+  validateDuration(options.durationSeconds);
+
   return {
     suiteId,
     label: suite.label,
     phases: buildPhases(suiteId, options),
     runMode
   };
+}
+
+function validateRunMode(runMode: TestPlan["runMode"]): void {
+  if (!RUN_MODES.includes(runMode)) {
+    throw new Error(`Invalid run mode: ${runMode}`);
+  }
+}
+
+function validateDuration(durationSeconds: BuildPlanOptions["durationSeconds"]): void {
+  if (durationSeconds !== undefined && (!Number.isFinite(durationSeconds) || durationSeconds <= 0)) {
+    throw new Error(`Invalid duration: ${durationSeconds}`);
+  }
 }
 
 function buildPhases(suiteId: TestSuiteId, options: BuildPlanOptions): TestPhase[] {
