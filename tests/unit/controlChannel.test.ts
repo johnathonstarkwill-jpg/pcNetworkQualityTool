@@ -63,4 +63,27 @@ describe("ControlServer over TCP", () => {
     const state: any = await disconnected;
     expect(state.clients[0].status).toBe("disconnected");
   });
+
+  it("broadcasts a message to connected clients", async () => {
+    server = new ControlServer();
+    const port = await server.listen(0);
+
+    const socket = net.connect(port, "127.0.0.1");
+    await new Promise((resolve) => socket.once("connect", resolve));
+    socket.write(
+      encode({
+        type: "register-client",
+        client: { id: "c3", name: "客户端 C", address: "127.0.0.1", status: "connected" }
+      })
+    );
+    // consume the client-registered ack
+    await new Promise((resolve) => socket.once("data", resolve));
+
+    const received = new Promise<string>((resolve) => socket.once("data", (d) => resolve(d.toString())));
+    server.broadcast({ type: "error", message: "hello" });
+    const line = await received;
+    expect(JSON.parse(line.trim())).toEqual({ type: "error", message: "hello" });
+
+    socket.destroy();
+  });
 });

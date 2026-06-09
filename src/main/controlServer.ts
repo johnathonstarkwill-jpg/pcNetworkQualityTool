@@ -10,6 +10,7 @@ export class ControlServer extends EventEmitter {
   private readonly sockets = new Map<string, net.Socket>();
   private netServer: net.Server | undefined;
   private listening = false;
+  private localAddresses: string[] = [];
 
   getState(): ServerSessionState {
     return {
@@ -17,18 +18,23 @@ export class ControlServer extends EventEmitter {
       clients: [...this.clients.values()],
       activePlan: this.activePlan,
       listening: this.listening,
-      localAddresses: listLocalIpv4Addresses()
+      localAddresses: this.localAddresses
     };
   }
 
   // Resolves with the actual bound port (useful when passing 0 in tests).
   listen(port: number = CONTROL_PORT): Promise<number> {
     return new Promise((resolve, reject) => {
+      if (this.netServer) {
+        reject(new Error("Already listening"));
+        return;
+      }
       const netServer = net.createServer((socket) => this.handleConnection(socket));
       netServer.on("error", reject);
       netServer.listen(port, () => {
         this.netServer = netServer;
         this.listening = true;
+        this.localAddresses = listLocalIpv4Addresses();
         const address = netServer.address();
         const boundPort = typeof address === "object" && address ? address.port : port;
         this.emit("state", this.getState());
@@ -72,9 +78,14 @@ export class ControlServer extends EventEmitter {
       }
     });
 
+    let dropped = false;
     const drop = (): void => {
-      if (clientId) this.markClientDisconnected(clientId);
-      if (clientId) this.sockets.delete(clientId);
+      if (dropped) return;
+      dropped = true;
+      if (clientId) {
+        this.markClientDisconnected(clientId);
+        this.sockets.delete(clientId);
+      }
     };
     socket.on("close", drop);
     socket.on("error", drop);
