@@ -15,8 +15,9 @@ async function createWindow(): Promise<void> {
     minHeight: 640,
     title: "PC Network Quality Tool",
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.mjs"),
       contextIsolation: true,
+      sandbox: false,
       nodeIntegration: false
     }
   });
