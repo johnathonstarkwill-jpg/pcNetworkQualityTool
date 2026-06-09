@@ -1,0 +1,16 @@
+appId: com.local.pcnetworkquality
+productName: PC Network Quality Tool
+directories:
+  output: release
+files:
+  - dist/**
+  - package.json
+extraResources:
+  - from: assets/iperf3
+    to: iperf3
+mac:
+  target:
+    - dmg
+win:
+  target:
+    - nsis
