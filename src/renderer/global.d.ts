@@ -12,6 +12,7 @@ declare global {
       getSampleReportHtml(): Promise<string>;
       startTest(suiteId: TestSuiteId): Promise<boolean>;
       getLatestReportHtml(): Promise<string>;
+      exportReportMarkdown(): Promise<{ saved: boolean; path?: string }>;
       listTestSuites(): Promise<Array<{ id: TestSuiteId; label: string; description: string }>>;
       buildPlan(suiteId: TestSuiteId, runMode: "single" | "separate" | "concurrent"): Promise<unknown>;
       connectToServer(serverId: string): Promise<void>;

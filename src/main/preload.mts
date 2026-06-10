@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("networkTool", {
   getSampleReportHtml: () => ipcRenderer.invoke("reports:sample-html") as Promise<string>,
   startTest: (suiteId: TestSuiteId) => ipcRenderer.invoke("server:start-test", suiteId) as Promise<boolean>,
   getLatestReportHtml: () => ipcRenderer.invoke("reports:latest-html") as Promise<string>,
+  exportReportMarkdown: () =>
+    ipcRenderer.invoke("reports:export-markdown") as Promise<{ saved: boolean; path?: string }>,
   getServerState: () => ipcRenderer.invoke("server:get-state") as Promise<ServerSessionState>,
   getLocalAddresses: () => ipcRenderer.invoke("net:local-addresses") as Promise<string[]>,
   listTestSuites: () => ipcRenderer.invoke("tests:list-suites") as Promise<unknown>,
