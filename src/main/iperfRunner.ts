@@ -95,44 +95,44 @@ export function intervalUpdate(phaseKind: TestPhaseKind, data: IperfIntervalData
   const sum = data.sum;
   if (!sum || typeof sum.bits_per_second !== "number") return null;
 
-  const update: IntervalUpdate = {
+  return {
     phaseKind,
     second: Math.round(sum.end ?? 0),
-    throughputMbps: toMbps(sum.bits_per_second)
+    throughputMbps: toMbps(sum.bits_per_second),
+    ...(typeof sum.lost_percent === "number" ? { udpLossPercent: sum.lost_percent } : {}),
+    ...(typeof sum.jitter_ms === "number" ? { jitterMs: sum.jitter_ms } : {})
   };
-  if (typeof sum.lost_percent === "number") update.udpLossPercent = sum.lost_percent;
-  if (typeof sum.jitter_ms === "number") update.jitterMs = sum.jitter_ms;
-  return update;
 }
 
 // Produce the final PhaseMetrics from the --json-stream "end" event's data.
 export function extractEndMetrics(phaseKind: TestPhaseKind, endData: IperfEndData | undefined): PhaseMetrics {
-  const metrics: PhaseMetrics = { phaseId: phaseKind, errors: [] };
-
   if (!endData) {
-    metrics.errors.push("Missing iperf3 end event.");
-    return metrics;
+    return { phaseId: phaseKind, errors: ["Missing iperf3 end event."] };
   }
 
   if (phaseKind === "udp-quality") {
     const sum = endData.sum;
     if (!sum || typeof sum.bits_per_second !== "number") {
-      metrics.errors.push("Missing UDP summary in iperf3 output.");
-      return metrics;
+      return { phaseId: phaseKind, errors: ["Missing UDP summary in iperf3 output."] };
     }
-    metrics.throughputMbps = toMbps(sum.bits_per_second);
-    metrics.udpLossPercent = sum.lost_percent;
-    metrics.jitterMs = sum.jitter_ms;
-    return metrics;
+    return {
+      phaseId: phaseKind,
+      errors: [],
+      throughputMbps: toMbps(sum.bits_per_second),
+      udpLossPercent: sum.lost_percent,
+      jitterMs: sum.jitter_ms
+    };
   }
 
   const tcpSummary = endData.sum_sent ?? endData.sum_received;
   if (!tcpSummary || typeof tcpSummary.bits_per_second !== "number") {
-    metrics.errors.push("Missing TCP summary in iperf3 output.");
-    return metrics;
+    return { phaseId: phaseKind, errors: ["Missing TCP summary in iperf3 output."] };
   }
-  metrics.throughputMbps = toMbps(tcpSummary.bits_per_second);
-  return metrics;
+  return {
+    phaseId: phaseKind,
+    errors: [],
+    throughputMbps: toMbps(tcpSummary.bits_per_second)
+  };
 }
 
 export function resolveIperfBinary(): string {

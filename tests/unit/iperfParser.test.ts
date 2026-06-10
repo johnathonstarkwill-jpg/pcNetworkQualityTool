@@ -57,6 +57,6 @@ describe("extractEndMetrics", () => {
 
   it("returns an error metric when the end data is missing", () => {
     const m = extractEndMetrics("tcp-upload", undefined);
-    expect(m.errors.length).toBeGreaterThan(0);
+    expect(m.errors).toEqual(["Missing iperf3 end event."]);
   });
 });
