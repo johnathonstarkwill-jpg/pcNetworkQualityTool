@@ -184,7 +184,6 @@ export class ControlServer extends EventEmitter {
       const serverAddress = this.localAddresses[0] ?? "127.0.0.1";
       socket.write(encode({ type: "start-test", plan: this.activePlan as TestPlan, serverAddress }));
       this.startRunTimer(nextId);
-      this.emit("state", this.getState());
       return;
     }
   }
