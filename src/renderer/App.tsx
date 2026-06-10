@@ -62,8 +62,21 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
     return window.networkTool.onServerState(setState);
   }, []);
 
-  async function previewReport() {
-    setReportHtml(await window.networkTool.getSampleReportHtml());
+  // When a real report becomes available, fetch its rendered HTML once.
+  const reportId = state?.latestReport?.id;
+  useEffect(() => {
+    if (!window.networkTool || !reportId) return;
+    void window.networkTool.getLatestReportHtml().then(setReportHtml);
+  }, [reportId]);
+
+  const testing = Boolean(state?.activePlan);
+  const hasClients = (state?.clients.filter((c) => c.status !== "disconnected").length ?? 0) > 0;
+
+  async function startTest(suiteId: TestSuiteId) {
+    const started = await window.networkTool.startTest(suiteId);
+    if (!started) {
+      alert("暂无客户端连接，无法开始测试");
+    }
   }
 
   return (
@@ -95,6 +108,7 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
               {state.clients.map((c) => (
                 <li key={c.id}>
                   {c.name}（{c.address}）— {CLIENT_STATUS_LABELS[c.status]}
+                  {state.testingClientId === c.id ? " · 测试中" : ""}
                 </li>
               ))}
             </ul>
@@ -104,18 +118,24 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
         </div>
         <div className="panel">
           <h2>测试套件</h2>
+          {testing ? <p className="empty">测试进行中…</p> : null}
           <div className="suite-list">
             {suites.map((suite) => (
-              <button key={suite.id} type="button" className="suite-button">
+              <button
+                key={suite.id}
+                type="button"
+                className="suite-button"
+                disabled={testing || !hasClients}
+                onClick={() => void startTest(suite.id)}
+              >
                 <strong>{suite.label}</strong>
                 <span>{suite.description}</span>
               </button>
             ))}
           </div>
-          <button type="button" className="secondary" onClick={() => void previewReport()}>
-            预览报告
-          </button>
-          {reportHtml ? <div className="report-preview" dangerouslySetInnerHTML={{ __html: reportHtml }} /> : null}
+          {reportHtml ? (
+            <div className="report-preview" dangerouslySetInnerHTML={{ __html: reportHtml }} />
+          ) : null}
         </div>
       </section>
     </main>
