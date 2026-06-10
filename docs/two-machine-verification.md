@@ -20,6 +20,18 @@ Prerequisites:
      UDP loss (%), and jitter (ms).
 6. **Reverse roles** (Windows server, Mac client) and repeat steps 1–5.
 
+## Suite run (server-orchestrated)
+
+7. **Server:** with at least one client connected, click a suite (e.g. 快速检测).
+   - Expect: connected clients show "· 测试中" in turn (sequential, one at a time).
+   - Expect: each client's status text cycles through 正在测试 TCP 上行/下行/UDP …
+8. **Server:** when all clients finish, a report renders inline under 测试套件
+   with the rating, per-client table, and the three iperf phases
+   (tcp-upload, tcp-download, udp-quality) per client.
+
+Note: connectivity and latency phases are not measured in this version; the
+report covers the three iperf throughput/loss/jitter phases.
+
 ## Pass criteria
 
 - Discovery OR manual-IP connect works in at least one direction.

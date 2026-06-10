@@ -110,3 +110,126 @@ describe("ControlClient over TCP", () => {
     client.disconnect();
   });
 });
+
+describe("ControlServer.startPlan orchestration", () => {
+  it("dispatches to clients sequentially and assembles a report", async () => {
+    const srv = new ControlServer();
+    const port = await srv.listen(0);
+
+    const timeline: string[] = [];
+    const makeExec = (tag: string) => async (input: { phaseKind: string }) => {
+      timeline.push(`${tag}:start:${input.phaseKind}`);
+      await new Promise((r) => setTimeout(r, 20));
+      timeline.push(`${tag}:end:${input.phaseKind}`);
+      return { phaseId: input.phaseKind, throughputMbps: 50, udpLossPercent: 0, jitterMs: 1, errors: [] };
+    };
+
+    const mkClient = (id: string) =>
+      new Promise<import("../../src/main/controlClient").ControlClient>(async (resolve) => {
+        const { ControlClient } = await import("../../src/main/controlClient");
+        const c = new ControlClient({ iperfExec: makeExec(id) as never, id, name: id });
+        c.on("state", (s) => {
+          if (s.status === "connected" && s.statusText.includes("等待")) resolve(c);
+        });
+        c.connectToAddress("127.0.0.1", port);
+      });
+
+    const a = await mkClient("A");
+    const b = await mkClient("B");
+
+    const reported = new Promise<import("../../src/shared/types").ServerSessionState>((resolve) => {
+      srv.on("state", (s) => {
+        if (s.latestReport) resolve(s);
+      });
+    });
+
+    const { buildTestPlan } = await import("../../src/main/testPlans");
+    srv.startPlan(buildTestPlan("quick-check", "separate"), ["A", "B"]);
+
+    const finalState = await reported;
+
+    const firstB = timeline.findIndex((e) => e.startsWith("B:"));
+    const lastA = timeline.map((e) => e.startsWith("A:")).lastIndexOf(true);
+    expect(firstB).toBeGreaterThan(lastA);
+
+    expect(finalState.latestReport?.results.length).toBe(2);
+    for (const r of finalState.latestReport!.results) {
+      expect(r.phases.length).toBe(3);
+    }
+    expect(finalState.latestReport?.summary.rating).toBeDefined();
+
+    a.disconnect();
+    b.disconnect();
+    await srv.close();
+  });
+
+  it("ignores a stale test-complete and a re-entrant startPlan", async () => {
+    const srv = new ControlServer();
+    const port = await srv.listen(0);
+
+    const exec = async (input: { phaseKind: string }) => {
+      await new Promise((r) => setTimeout(r, 10));
+      return { phaseId: input.phaseKind, throughputMbps: 10, udpLossPercent: 0, jitterMs: 1, errors: [] };
+    };
+    const { ControlClient } = await import("../../src/main/controlClient");
+    const c = await new Promise<InstanceType<typeof ControlClient>>((resolve) => {
+      const cc = new ControlClient({ iperfExec: exec as never, id: "solo", name: "solo" });
+      cc.on("state", (s) => { if (s.status === "connected" && s.statusText.includes("等待")) resolve(cc); });
+      cc.connectToAddress("127.0.0.1", port);
+    });
+
+    const reported = new Promise<import("../../src/shared/types").ServerSessionState>((resolve) => {
+      srv.on("state", (s) => { if (s.latestReport) resolve(s); });
+    });
+    const { buildTestPlan } = await import("../../src/main/testPlans");
+    srv.startPlan(buildTestPlan("quick-check", "separate"), ["solo"]);
+    // Re-entrant call while running must be ignored (no throw, no clobber).
+    srv.startPlan(buildTestPlan("quick-check", "separate"), ["solo"]);
+
+    const finalState = await reported;
+    expect(finalState.latestReport?.results.length).toBe(1);
+    expect(finalState.latestReport?.results[0].phases.length).toBe(3);
+
+    c.disconnect();
+    await srv.close();
+  });
+});
+
+describe("ControlClient plan execution", () => {
+  it("runs runnable phases via the injected executor and reports each result then completes", async () => {
+    const srv = new ControlServer();
+    const port = await srv.listen(0);
+
+    const runnableKinds: string[] = [];
+    const fakeExec = async (input: { phaseKind: string }) => {
+      runnableKinds.push(input.phaseKind);
+      return { phaseId: input.phaseKind, throughputMbps: 100, errors: [] };
+    };
+
+    const client = new ControlClient({ iperfExec: fakeExec as never, id: "cx", name: "CX" });
+    const connected = new Promise<void>((resolve) => {
+      client.on("state", (s) => {
+        if (s.status === "connected" && s.statusText.includes("等待")) resolve();
+      });
+    });
+    client.connectToAddress("127.0.0.1", port);
+    await connected;
+
+    const phaseResults: string[] = [];
+    let completed = false;
+    srv.on("phase-result", (clientId: string) => phaseResults.push(clientId));
+    const done = new Promise<void>((resolve) => srv.on("test-complete", () => { completed = true; resolve(); }));
+
+    const { buildTestPlan } = await import("../../src/main/testPlans");
+    const plan = buildTestPlan("quick-check", "separate");
+    srv.startPlan(plan, ["cx"]);
+
+    await done;
+    expect(completed).toBe(true);
+    expect(runnableKinds).toEqual(["tcp-upload", "tcp-download", "udp-quality"]);
+    expect(phaseResults.length).toBe(3);
+
+    client.disconnect();
+    await srv.close();
+  });
+});

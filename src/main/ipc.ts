@@ -61,6 +61,21 @@ export function registerIpcHandlers(getWebContents: () => WebContents | undefine
     return buildTestPlan(suiteId, runMode);
   });
 
+  ipcMain.handle("server:start-test", (_event, suiteId: TestSuiteId) => {
+    const connectedIds = server
+      .getState()
+      .clients.filter((c) => c.status === "connected")
+      .map((c) => c.id);
+    if (connectedIds.length === 0) return false;
+    server.startPlan(buildTestPlan(suiteId, "separate"), connectedIds);
+    return true;
+  });
+
+  ipcMain.handle("reports:latest-html", () => {
+    const report = server.getLatestReport();
+    return report ? renderReportHtml(report) : "";
+  });
+
   ipcMain.handle("reports:sample-html", () => {
     const results = [
       {

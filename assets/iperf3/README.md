@@ -28,3 +28,19 @@ before packaging ships working binaries:
      `cygwin*.dll` files in `win32-x64/` (update the fetch script to extract via
      `child_process` + `Expand-Archive`/`unzip`), or
   2. use a natively-compiled standalone Windows build that needs no Cygwin DLLs.
+
+## macOS code signing (Apple Silicon)
+
+On arm64 macOS, an unsigned or invalidly-signed binary is killed on launch with
+`Killed: 9` (SIGKILL → exit 137), so the iperf phases fail with
+`iperf3 exited with code null`. A locally-built or freshly-downloaded `iperf3`
+must carry a valid signature. For development, ad-hoc sign it:
+
+```bash
+codesign --force -s - assets/iperf3/darwin-arm64/iperf3
+```
+
+When the app is packaged, electron-builder signs the `.app` (and its bundled
+resources) during the macOS build, so a properly-signed binary is shipped.
+Verify a binary is runnable with `codesign -v <path>` and a quick
+`<path> -c 127.0.0.1 -t 1` against a local `iperf3 -s`.
