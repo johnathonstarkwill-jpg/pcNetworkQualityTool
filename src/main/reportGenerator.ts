@@ -110,7 +110,7 @@ export function renderReportMarkdown(report: TestReport, log: string[]): string 
 
   return `# 网络质量测试报告
 
-**评级：** ${report.summary.rating}
+**评级：** ${mdCell(report.summary.rating)}
 
 ${report.summary.conclusion}
 
@@ -119,8 +119,8 @@ ${report.summary.recommendation}
 ## 测试信息
 
 - 时间：${report.createdAt}
-- 服务器：${report.serverName} - ${report.serverAddress}
-- 套件：${report.suiteId}
+- 服务器：${mdCell(report.serverName)} - ${mdCell(report.serverAddress)}
+- 套件：${mdCell(report.suiteId)}
 
 ## 客户端
 
@@ -142,6 +142,7 @@ ${logBlock}
 `;
 }
 
+// Escape only the characters that break a GFM table cell or inline value: "|" and newlines.
 function mdCell(value: string): string {
   return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
