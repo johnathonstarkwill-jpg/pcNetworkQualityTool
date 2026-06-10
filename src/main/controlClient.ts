@@ -167,6 +167,7 @@ export class ControlClient extends EventEmitter {
     if (!socket) return;
 
     this.status = "testing";
+    this.statusText = "正在准备测试";
     this.emit("state", this.getState());
 
     const phases = plan.phases.filter((phase) => RUNNABLE_PHASES.has(phase.kind));
