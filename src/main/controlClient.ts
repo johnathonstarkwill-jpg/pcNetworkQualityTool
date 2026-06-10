@@ -33,6 +33,8 @@ export class ControlClient extends EventEmitter {
   private status: ClientSessionState["status"] = "searching";
   private statusText = "正在搜索服务器";
   private lastResult: PhaseMetrics[] | undefined;
+  private log: string[] = [];
+  private currentSuite: ClientSessionState["currentSuite"];
   private socket: net.Socket | undefined;
   private intentionalClose = false;
   private readonly iperfExec: IperfExecutor;
@@ -56,7 +58,9 @@ export class ControlClient extends EventEmitter {
       connectedServer: this.connectedServer,
       status: this.status,
       statusText: this.statusText,
-      lastResult: this.lastResult
+      lastResult: this.lastResult,
+      log: this.log,
+      currentSuite: this.currentSuite
     };
   }
 

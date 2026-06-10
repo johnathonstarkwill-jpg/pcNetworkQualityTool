@@ -9,9 +9,11 @@ import type {
   ConnectedClient,
   ControlMessage,
   PhaseMetrics,
+  ReportSummary,
   ServerSessionState,
   TestPlan,
-  TestReport
+  TestReport,
+  TestSuiteId
 } from "../shared/types.js";
 
 export class ControlServer extends EventEmitter {
@@ -27,6 +29,8 @@ export class ControlServer extends EventEmitter {
   private queue: string[] = [];
   private readonly results = new Map<string, PhaseMetrics[]>();
   private runTimer: NodeJS.Timeout | undefined;
+  private logLines: string[] = [];
+  private suiteRatings: Partial<Record<TestSuiteId, ReportSummary["rating"]>> = {};
 
   getState(): ServerSessionState {
     return {
@@ -36,7 +40,9 @@ export class ControlServer extends EventEmitter {
       latestReport: this.latestReport,
       listening: this.listening,
       localAddresses: this.localAddresses,
-      testingClientId: this.testingClientId
+      testingClientId: this.testingClientId,
+      log: this.logLines,
+      suiteRatings: this.suiteRatings
     };
   }
 

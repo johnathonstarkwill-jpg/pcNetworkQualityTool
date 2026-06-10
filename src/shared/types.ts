@@ -83,6 +83,8 @@ export type ControlMessage =
   | { type: "start-test"; plan: TestPlan; serverAddress: string }
   | { type: "phase-result"; clientId: string; metrics: PhaseMetrics }
   | { type: "test-complete"; clientId: string }
+  | { type: "log"; clientId: string; line: string }
+  | { type: "suite-complete"; suiteId: TestSuiteId; rating: ReportSummary["rating"] }
   | { type: "error"; message: string };
 
 export interface ServerSessionState {
@@ -93,6 +95,8 @@ export interface ServerSessionState {
   listening: boolean;
   localAddresses: string[];
   testingClientId?: string;
+  log: string[];
+  suiteRatings: Partial<Record<TestSuiteId, ReportSummary["rating"]>>;
 }
 
 export interface ClientSessionState {
@@ -102,4 +106,6 @@ export interface ClientSessionState {
   status: "searching" | "connecting" | "connected" | "testing" | "error";
   statusText: string;
   lastResult?: PhaseMetrics[];
+  log: string[];
+  currentSuite?: { label: string; status: "running" | ReportSummary["rating"] };
 }
