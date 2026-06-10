@@ -110,3 +110,42 @@ describe("ControlClient over TCP", () => {
     client.disconnect();
   });
 });
+
+describe.skip("ControlClient plan execution", () => {
+  it("runs runnable phases via the injected executor and reports each result then completes", async () => {
+    const srv = new ControlServer();
+    const port = await srv.listen(0);
+
+    const runnableKinds: string[] = [];
+    const fakeExec = async (input: { phaseKind: string }) => {
+      runnableKinds.push(input.phaseKind);
+      return { phaseId: input.phaseKind, throughputMbps: 100, errors: [] };
+    };
+
+    const client = new ControlClient({ iperfExec: fakeExec as never, id: "cx", name: "CX" });
+    const connected = new Promise<void>((resolve) => {
+      client.on("state", (s) => {
+        if (s.status === "connected" && s.statusText.includes("等待")) resolve();
+      });
+    });
+    client.connectToAddress("127.0.0.1", port);
+    await connected;
+
+    const phaseResults: string[] = [];
+    let completed = false;
+    srv.on("phase-result", (clientId: string) => phaseResults.push(clientId));
+    const done = new Promise<void>((resolve) => srv.on("test-complete", () => { completed = true; resolve(); }));
+
+    const { buildTestPlan } = await import("../../src/main/testPlans");
+    const plan = buildTestPlan("quick-check", "separate");
+    srv.startPlan(plan, ["cx"]);
+
+    await done;
+    expect(completed).toBe(true);
+    expect(runnableKinds).toEqual(["tcp-upload", "tcp-download", "udp-quality"]);
+    expect(phaseResults.length).toBe(3);
+
+    client.disconnect();
+    await srv.close();
+  });
+});

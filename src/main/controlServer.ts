@@ -108,4 +108,9 @@ export class ControlServer extends EventEmitter {
     const line = encode(message);
     for (const socket of this.sockets.values()) socket.write(line);
   }
+
+  // Placeholder — full implementation lands in Task O3.
+  startPlan(_plan: TestPlan, _clientIds: string[]): void {
+    throw new Error("startPlan not yet implemented");
+  }
 }

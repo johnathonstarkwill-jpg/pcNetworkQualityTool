@@ -4,7 +4,28 @@ import os from "node:os";
 import { CONTROL_PORT, createDecoder, encode } from "./controlProtocol.js";
 import { runIperf } from "./iperfRunner.js";
 import { listLocalIpv4Addresses } from "./netInfo.js";
-import type { ClientSessionState, ConnectedClient, DiscoveredServer, PhaseMetrics } from "../shared/types.js";
+import type {
+  ClientSessionState,
+  ConnectedClient,
+  DiscoveredServer,
+  PhaseMetrics,
+  TestPhaseKind,
+  TestPlan
+} from "../shared/types.js";
+
+export type IperfExecutor = typeof runIperf;
+
+export interface ControlClientOptions {
+  iperfExec?: IperfExecutor;
+  id?: string;
+  name?: string;
+}
+
+const RUNNABLE_PHASES: ReadonlySet<TestPhaseKind> = new Set<TestPhaseKind>([
+  "tcp-upload",
+  "tcp-download",
+  "udp-quality"
+]);
 
 export class ControlClient extends EventEmitter {
   private connectedServer: DiscoveredServer | undefined;
@@ -14,12 +35,19 @@ export class ControlClient extends EventEmitter {
   private lastResult: PhaseMetrics[] | undefined;
   private socket: net.Socket | undefined;
   private intentionalClose = false;
-  private readonly identity: ConnectedClient = {
-    id: `client-${os.hostname()}-${process.pid}`,
-    name: os.hostname(),
-    address: listLocalIpv4Addresses()[0] ?? "127.0.0.1",
-    status: "connected"
-  };
+  private readonly iperfExec: IperfExecutor;
+  private readonly identity: ConnectedClient;
+
+  constructor(options: ControlClientOptions = {}) {
+    super();
+    this.iperfExec = options.iperfExec ?? runIperf;
+    this.identity = {
+      id: options.id ?? `client-${os.hostname()}-${process.pid}`,
+      name: options.name ?? os.hostname(),
+      address: listLocalIpv4Addresses()[0] ?? "127.0.0.1",
+      status: "connected"
+    };
+  }
 
   getState(): ClientSessionState {
     return {
@@ -81,6 +109,8 @@ export class ControlClient extends EventEmitter {
           this.status = "connected";
           this.statusText = "已连接，等待服务器开始测试";
           this.emit("state", this.getState());
+        } else if (message.type === "start-test") {
+          void this.runPlan(message.plan, message.serverAddress);
         }
       }
     });
@@ -95,7 +125,7 @@ export class ControlClient extends EventEmitter {
     socket.on("close", () => {
       if (settled || this.intentionalClose) return;
       settled = true;
-      if (this.status === "connected") {
+      if (this.status === "connected" || this.status === "testing") {
         this.status = "error";
         this.statusText = "与服务器的连接已断开";
         this.emit("state", this.getState());
@@ -103,8 +133,7 @@ export class ControlClient extends EventEmitter {
     });
   }
 
-  // Manual cross-machine test: one short TCP-upload + one UDP-quality run
-  // against the connected server. Returns nothing; results land in state.
+  // Manual cross-machine test: one short TCP-upload + one UDP-quality run.
   async runManualTest(): Promise<void> {
     if (this.status === "testing") return;
     const host = this.connectedServer?.address;
@@ -118,8 +147,8 @@ export class ControlClient extends EventEmitter {
     this.emit("state", this.getState());
 
     try {
-      const tcp = await runIperf({ host, phaseKind: "tcp-upload", durationSeconds: 5 });
-      const udp = await runIperf({ host, phaseKind: "udp-quality", durationSeconds: 5, targetBitrateMbps: 10 });
+      const tcp = await this.iperfExec({ host, phaseKind: "tcp-upload", durationSeconds: 5 });
+      const udp = await this.iperfExec({ host, phaseKind: "udp-quality", durationSeconds: 5, targetBitrateMbps: 10 });
       this.lastResult = [tcp, udp];
       this.status = "connected";
       this.statusText = "测试完成";
@@ -127,6 +156,45 @@ export class ControlClient extends EventEmitter {
       this.status = "error";
       this.statusText = error instanceof Error ? `测试失败：${error.message}` : "测试失败";
     }
+    this.emit("state", this.getState());
+  }
+
+  // Server-orchestrated run: execute the plan's runnable phases in order,
+  // streaming a phase-result per phase and a final test-complete.
+  private async runPlan(plan: TestPlan, serverAddress: string): Promise<void> {
+    if (this.status === "testing") return;
+    const socket = this.socket;
+    if (!socket) return;
+
+    this.status = "testing";
+    this.emit("state", this.getState());
+
+    const phases = plan.phases.filter((phase) => RUNNABLE_PHASES.has(phase.kind));
+    for (let index = 0; index < phases.length; index += 1) {
+      const phase = phases[index];
+      this.statusText = `正在测试 ${phase.label} (${index + 1}/${phases.length})`;
+      this.emit("state", this.getState());
+
+      let metrics: PhaseMetrics;
+      try {
+        metrics = await this.iperfExec({
+          host: serverAddress,
+          phaseKind: phase.kind,
+          durationSeconds: phase.durationSeconds,
+          targetBitrateMbps: phase.targetBitrateMbps
+        });
+      } catch (error: unknown) {
+        metrics = {
+          phaseId: phase.id,
+          errors: [error instanceof Error ? error.message : "测试阶段失败"]
+        };
+      }
+      socket.write(encode({ type: "phase-result", clientId: this.identity.id, metrics }));
+    }
+
+    socket.write(encode({ type: "test-complete", clientId: this.identity.id }));
+    this.status = "connected";
+    this.statusText = "测试完成";
     this.emit("state", this.getState());
   }
 
