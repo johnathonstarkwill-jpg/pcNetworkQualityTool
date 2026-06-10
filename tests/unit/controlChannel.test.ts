@@ -233,3 +233,34 @@ describe("ControlClient plan execution", () => {
     await srv.close();
   });
 });
+
+describe("ControlClient logging and currentSuite", () => {
+  it("logs intervals + phases and sets currentSuite from start-test", async () => {
+    const srv = new ControlServer();
+    const port = await srv.listen(0);
+
+    const fakeExec = async (input: { phaseKind: string }, onInterval?: (u: unknown) => void) => {
+      onInterval?.({ phaseKind: input.phaseKind, second: 1, throughputMbps: 50 });
+      return { phaseId: input.phaseKind, throughputMbps: 50, errors: [] };
+    };
+    const { ControlClient } = await import("../../src/main/controlClient");
+    const client = new ControlClient({ iperfExec: fakeExec as never, id: "lg", name: "LG" });
+    await new Promise<void>((resolve) => {
+      client.on("state", (s) => { if (s.status === "connected" && s.statusText.includes("等待")) resolve(); });
+      client.connectToAddress("127.0.0.1", port);
+    });
+
+    const done = new Promise<void>((resolve) => srv.on("test-complete", () => resolve()));
+    const { buildTestPlan } = await import("../../src/main/testPlans");
+    srv.startPlan(buildTestPlan("quick-check", "separate"), ["lg"]);
+    await done;
+
+    const state = client.getState();
+    expect(state.currentSuite?.label).toBe("快速检测");
+    expect(state.log.some((l) => l.includes("快速检测"))).toBe(true);
+    expect(state.log.some((l) => l.includes("Mbps"))).toBe(true);
+
+    client.disconnect();
+    await srv.close();
+  });
+});

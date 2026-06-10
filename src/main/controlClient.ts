@@ -2,7 +2,8 @@ import { EventEmitter } from "node:events";
 import net from "node:net";
 import os from "node:os";
 import { CONTROL_PORT, createDecoder, encode } from "./controlProtocol.js";
-import { runIperf } from "./iperfRunner.js";
+import { runIperf, type IntervalUpdate } from "./iperfRunner.js";
+import { appendLog, stamp } from "./logBuffer.js";
 import { listLocalIpv4Addresses } from "./netInfo.js";
 import type {
   ClientSessionState,
@@ -26,6 +27,28 @@ const RUNNABLE_PHASES: ReadonlySet<TestPhaseKind> = new Set<TestPhaseKind>([
   "tcp-download",
   "udp-quality"
 ]);
+
+const PHASE_LABELS: Record<TestPhaseKind, string> = {
+  connectivity: "连通性",
+  latency: "延迟",
+  "tcp-upload": "TCP 上行",
+  "tcp-download": "TCP 下行",
+  "udp-quality": "UDP"
+};
+
+function formatInterval(update: {
+  phaseKind: TestPhaseKind;
+  second: number;
+  throughputMbps: number;
+  udpLossPercent?: number;
+  jitterMs?: number;
+}): string {
+  const base = `${PHASE_LABELS[update.phaseKind]} ${update.second}s: ${update.throughputMbps.toFixed(1)} Mbps`;
+  if (update.udpLossPercent !== undefined || update.jitterMs !== undefined) {
+    return `${base} 丢包 ${(update.udpLossPercent ?? 0).toFixed(1)}% 抖动 ${(update.jitterMs ?? 0).toFixed(2)}ms`;
+  }
+  return base;
+}
 
 export class ControlClient extends EventEmitter {
   private connectedServer: DiscoveredServer | undefined;
@@ -114,7 +137,12 @@ export class ControlClient extends EventEmitter {
           this.statusText = "已连接，等待服务器开始测试";
           this.emit("state", this.getState());
         } else if (message.type === "start-test") {
+          this.currentSuite = { label: message.plan.label, status: "running" };
+          this.pushLog(`收到测试计划：${message.plan.label}`);
           void this.runPlan(message.plan, message.serverAddress);
+        } else if (message.type === "suite-complete") {
+          this.currentSuite = { label: this.currentSuite?.label ?? "", status: message.rating };
+          this.pushLog(`套件完成，评级：${message.rating}`);
         }
       }
     });
@@ -148,17 +176,20 @@ export class ControlClient extends EventEmitter {
 
     this.status = "testing";
     this.statusText = "正在测试网络质量";
-    this.emit("state", this.getState());
+    this.pushLog("开始手动测试");
 
     try {
-      const tcp = await this.iperfExec({ host, phaseKind: "tcp-upload", durationSeconds: 5 });
-      const udp = await this.iperfExec({ host, phaseKind: "udp-quality", durationSeconds: 5, targetBitrateMbps: 10 });
+      const onInterval = (u: IntervalUpdate): void => this.pushLog(formatInterval(u));
+      const tcp = await this.iperfExec({ host, phaseKind: "tcp-upload", durationSeconds: 5 }, onInterval);
+      const udp = await this.iperfExec({ host, phaseKind: "udp-quality", durationSeconds: 5, targetBitrateMbps: 10 }, onInterval);
       this.lastResult = [tcp, udp];
       this.status = "connected";
       this.statusText = "测试完成";
+      this.pushLog("手动测试完成");
     } catch (error: unknown) {
       this.status = "error";
       this.statusText = error instanceof Error ? `测试失败：${error.message}` : "测试失败";
+      this.pushLog(this.statusText);
     }
     this.emit("state", this.getState());
   }
@@ -178,20 +209,27 @@ export class ControlClient extends EventEmitter {
     for (let index = 0; index < phases.length; index += 1) {
       const phase = phases[index];
       this.statusText = `正在测试 ${phase.label} (${index + 1}/${phases.length})`;
-      this.emit("state", this.getState());
+      this.pushLog(`开始 ${phase.label}`);
 
       let metrics: PhaseMetrics;
       try {
-        metrics = await this.iperfExec({
-          host: serverAddress,
-          phaseKind: phase.kind,
-          durationSeconds: phase.durationSeconds,
-          targetBitrateMbps: phase.targetBitrateMbps
-        });
+        metrics = await this.iperfExec(
+          {
+            host: serverAddress,
+            phaseKind: phase.kind,
+            durationSeconds: phase.durationSeconds,
+            targetBitrateMbps: phase.targetBitrateMbps
+          },
+          (u) => this.pushLog(formatInterval(u as IntervalUpdate))
+        );
+        const mbps = metrics.throughputMbps !== undefined ? `${metrics.throughputMbps.toFixed(1)} Mbps` : "—";
+        this.pushLog(`完成 ${phase.label}: ${mbps}`);
       } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "测试阶段失败";
+        this.pushLog(`${phase.label} 阶段失败：${message}`);
         metrics = {
           phaseId: phase.id,
-          errors: [error instanceof Error ? error.message : "测试阶段失败"]
+          errors: [message]
         };
       }
       socket.write(encode({ type: "phase-result", clientId: this.identity.id, metrics }));
@@ -207,6 +245,14 @@ export class ControlClient extends EventEmitter {
     this.intentionalClose = true;
     this.socket?.destroy();
     this.socket = undefined;
+  }
+
+  private pushLog(line: string): void {
+    this.log = appendLog(this.log, stamp(line));
+    if (this.socket && !this.intentionalClose) {
+      this.socket.write(encode({ type: "log", clientId: this.identity.id, line }));
+    }
+    this.emit("state", this.getState());
   }
 
   private fail(text: string): void {
