@@ -41,6 +41,13 @@ report covers the three iperf throughput/loss/jitter phases.
     blue/pulsing; on completion they turn green (优秀/合格), amber (风险), or red
     (不合格) per the report rating.
 
+## Export report
+
+11. **Server, after a run:** click 导出 Markdown under the report. A save dialog
+    opens; choose a path. The `.md` file contains the rating, conclusion, test
+    info, client table, the per-phase metrics table, and a 运行日志 section with
+    this run's log lines.
+
 ## Pass criteria
 
 - Discovery OR manual-IP connect works in at least one direction.
