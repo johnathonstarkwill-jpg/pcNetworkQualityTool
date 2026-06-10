@@ -1,4 +1,4 @@
-import { type WebContents, ipcMain } from "electron";
+import { type WebContents, dialog, ipcMain } from "electron";
 import { ControlClient } from "./controlClient.js";
 import { ControlServer } from "./controlServer.js";
 import { DISCOVERY_PORT, DiscoveryBroadcaster, DiscoveryScanner } from "./discovery.js";
@@ -6,9 +6,10 @@ import { CONTROL_PORT } from "./controlProtocol.js";
 import { IperfServer } from "./iperfServer.js";
 import { listLocalIpv4Addresses } from "./netInfo.js";
 import { getPermissionGuidance } from "./permissions.js";
-import { buildReportSummary, renderReportHtml } from "./reportGenerator.js";
+import { buildReportSummary, renderReportHtml, renderReportMarkdown } from "./reportGenerator.js";
 import { buildTestPlan, listTestSuites } from "./testPlans.js";
 import type { AppRole, DiscoveredServer, TestSuiteId } from "../shared/types.js";
+import { writeFile } from "node:fs/promises";
 import os from "node:os";
 
 const server = new ControlServer();
@@ -76,6 +77,23 @@ export function registerIpcHandlers(getWebContents: () => WebContents | undefine
     return report ? renderReportHtml(report) : "";
   });
 
+  ipcMain.handle("reports:export-markdown", async () => {
+    const report = server.getLatestReport();
+    if (!report) return { saved: false };
+
+    const markdown = renderReportMarkdown(report, server.getState().log);
+    const defaultName = `网络质量测试报告-${report.suiteId}-${timestampForFile(report.createdAt)}.md`;
+
+    const result = await dialog.showSaveDialog({
+      defaultPath: defaultName,
+      filters: [{ name: "Markdown", extensions: ["md"] }]
+    });
+    if (result.canceled || !result.filePath) return { saved: false };
+
+    await writeFile(result.filePath, markdown, "utf8");
+    return { saved: true, path: result.filePath };
+  });
+
   ipcMain.handle("reports:sample-html", () => {
     const results = [
       {
@@ -130,6 +148,12 @@ async function stopNetworking(): Promise<void> {
   iperfServer.stop();
   client.disconnect();
   await server.close();
+}
+
+function timestampForFile(iso: string): string {
+  const date = new Date(iso);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
 }
 
 // Exposed so tests / future shutdown hooks can reference the discovery port.
