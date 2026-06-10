@@ -55,6 +55,7 @@ export function App() {
 function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => void }) {
   const [state, setState] = useState<ServerSessionState | undefined>(undefined);
   const [reportHtml, setReportHtml] = useState<string>("");
+  const [exportNote, setExportNote] = useState<string>("");
 
   useEffect(() => {
     if (!window.networkTool) return;
@@ -71,6 +72,16 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
 
   const testing = Boolean(state?.activePlan);
   const hasClients = (state?.clients.filter((c) => c.status !== "disconnected").length ?? 0) > 0;
+
+  async function exportMarkdown() {
+    setExportNote("");
+    try {
+      const result = await window.networkTool.exportReportMarkdown();
+      if (result.saved) setExportNote(`已导出：${result.path ?? ""}`);
+    } catch {
+      setExportNote("导出失败，请重试");
+    }
+  }
 
   async function startTest(suiteId: TestSuiteId) {
     try {
@@ -139,6 +150,14 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
               );
             })}
           </div>
+          {state?.latestReport ? (
+            <div className="report-actions">
+              <button type="button" className="secondary" onClick={() => void exportMarkdown()}>
+                导出 Markdown
+              </button>
+              {exportNote ? <span className="export-note">{exportNote}</span> : null}
+            </div>
+          ) : null}
           {reportHtml ? (
             <div className="report-preview" dangerouslySetInnerHTML={{ __html: reportHtml }} />
           ) : null}

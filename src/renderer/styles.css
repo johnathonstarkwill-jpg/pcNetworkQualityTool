@@ -273,3 +273,16 @@ button:hover {
 .suite-button.suite-running:hover {
   background: #0d4f88;
 }
+
+.report-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0 4px;
+}
+
+.export-note {
+  color: #52636f;
+  font-size: 14px;
+  word-break: break-all;
+}
