@@ -36,13 +36,7 @@ const PHASE_LABELS: Record<TestPhaseKind, string> = {
   "udp-quality": "UDP"
 };
 
-function formatInterval(update: {
-  phaseKind: TestPhaseKind;
-  second: number;
-  throughputMbps: number;
-  udpLossPercent?: number;
-  jitterMs?: number;
-}): string {
+function formatInterval(update: IntervalUpdate): string {
   const base = `${PHASE_LABELS[update.phaseKind]} ${update.second}s: ${update.throughputMbps.toFixed(1)} Mbps`;
   if (update.udpLossPercent !== undefined || update.jitterMs !== undefined) {
     return `${base} 丢包 ${(update.udpLossPercent ?? 0).toFixed(1)}% 抖动 ${(update.jitterMs ?? 0).toFixed(2)}ms`;
@@ -191,7 +185,6 @@ export class ControlClient extends EventEmitter {
       this.statusText = error instanceof Error ? `测试失败：${error.message}` : "测试失败";
       this.pushLog(this.statusText);
     }
-    this.emit("state", this.getState());
   }
 
   // Server-orchestrated run: execute the plan's runnable phases in order,
@@ -220,7 +213,7 @@ export class ControlClient extends EventEmitter {
             durationSeconds: phase.durationSeconds,
             targetBitrateMbps: phase.targetBitrateMbps
           },
-          (u) => this.pushLog(formatInterval(u as IntervalUpdate))
+          (u: IntervalUpdate) => this.pushLog(formatInterval(u))
         );
         const mbps = metrics.throughputMbps !== undefined ? `${metrics.throughputMbps.toFixed(1)} Mbps` : "—";
         this.pushLog(`完成 ${phase.label}: ${mbps}`);
