@@ -201,3 +201,75 @@ button:hover {
 .result-table th {
   background: #eef3f6;
 }
+
+.log-console {
+  background: #0f1720;
+  color: #d6e2ec;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  height: 220px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 12px;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.suite-status {
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-weight: 650;
+  background: #eef3f6;
+}
+
+.suite-running {
+  background: #1261a6;
+  color: #fff;
+  animation: suitePulse 1.2s ease-in-out infinite;
+}
+
+.suite-pass {
+  background: #1b873f;
+  color: #fff;
+}
+
+.suite-risk {
+  background: #c79a00;
+  color: #fff;
+}
+
+.suite-fail {
+  background: #c0392b;
+  color: #fff;
+}
+
+.suite-button.suite-pass span,
+.suite-button.suite-risk span,
+.suite-button.suite-fail span,
+.suite-button.suite-running span {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+@keyframes suitePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+
+.suite-button.suite-pass:hover {
+  background: #156e33;
+}
+
+.suite-button.suite-risk:hover {
+  background: #a07f00;
+}
+
+.suite-button.suite-fail:hover {
+  background: #9e2f23;
+}
+
+.suite-button.suite-running:hover {
+  background: #0d4f88;
+}

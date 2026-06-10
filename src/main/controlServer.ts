@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import net from "node:net";
 import os from "node:os";
 import { CONTROL_PORT, createDecoder, encode } from "./controlProtocol.js";
+import { appendLog, stamp } from "./logBuffer.js";
 import { listLocalIpv4Addresses } from "./netInfo.js";
 import { buildReportSummary } from "./reportGenerator.js";
 import type {
@@ -9,9 +10,11 @@ import type {
   ConnectedClient,
   ControlMessage,
   PhaseMetrics,
+  ReportSummary,
   ServerSessionState,
   TestPlan,
-  TestReport
+  TestReport,
+  TestSuiteId
 } from "../shared/types.js";
 
 export class ControlServer extends EventEmitter {
@@ -27,6 +30,8 @@ export class ControlServer extends EventEmitter {
   private queue: string[] = [];
   private readonly results = new Map<string, PhaseMetrics[]>();
   private runTimer: NodeJS.Timeout | undefined;
+  private logLines: string[] = [];
+  private suiteRatings: Partial<Record<TestSuiteId, ReportSummary["rating"]>> = {};
 
   getState(): ServerSessionState {
     return {
@@ -36,7 +41,9 @@ export class ControlServer extends EventEmitter {
       latestReport: this.latestReport,
       listening: this.listening,
       localAddresses: this.localAddresses,
-      testingClientId: this.testingClientId
+      testingClientId: this.testingClientId,
+      log: this.logLines,
+      suiteRatings: this.suiteRatings
     };
   }
 
@@ -101,6 +108,9 @@ export class ControlServer extends EventEmitter {
           this.recordPhaseResult(message.clientId, message.metrics);
         } else if (message.type === "test-complete") {
           this.handleTestComplete(message.clientId);
+        } else if (message.type === "log") {
+          const name = this.clients.get(message.clientId)?.name ?? message.clientId;
+          this.pushLog(`${name} ${message.line}`);
         }
       }
     });
@@ -120,7 +130,7 @@ export class ControlServer extends EventEmitter {
 
   registerClient(client: ConnectedClient): void {
     this.clients.set(client.id, { ...client, status: "connected" });
-    this.emit("state", this.getState());
+    this.pushLog(`客户端已连接：${client.name}`);
   }
 
   markClientDisconnected(clientId: string): void {
@@ -132,6 +142,7 @@ export class ControlServer extends EventEmitter {
 
   private handleClientGone(clientId: string): void {
     this.markClientDisconnected(clientId);
+    this.pushLog(`客户端断开：${this.clients.get(clientId)?.name ?? clientId}`);
     if (this.testingClientId === clientId) {
       this.testingClientId = undefined;
       this.clearRunTimer();
@@ -167,12 +178,12 @@ export class ControlServer extends EventEmitter {
       const client = this.clients.get(nextId);
       if (client) this.clients.set(nextId, { ...client, status: "testing" });
       this.testingClientId = nextId;
+      this.pushLog(`派发测试给 ${client?.name ?? nextId}`);
       this.results.set(nextId, []);
 
       const serverAddress = this.localAddresses[0] ?? "127.0.0.1";
       socket.write(encode({ type: "start-test", plan: this.activePlan as TestPlan, serverAddress }));
       this.startRunTimer(nextId);
-      this.emit("state", this.getState());
       return;
     }
   }
@@ -185,6 +196,7 @@ export class ControlServer extends EventEmitter {
 
   private handleTestComplete(clientId: string): void {
     const client = this.clients.get(clientId);
+    this.pushLog(`${client?.name ?? clientId} 测试完成`);
     if (client) this.clients.set(clientId, { ...client, status: "connected" });
     this.emit("test-complete", clientId);
     if (this.testingClientId !== clientId) return; // stale/unknown completion: ignore
@@ -223,6 +235,9 @@ export class ControlServer extends EventEmitter {
     };
 
     this.latestReport = report;
+    this.suiteRatings = { ...this.suiteRatings, [plan.suiteId]: report.summary.rating };
+    this.pushLog(`报告就绪：评级 ${report.summary.rating}`);
+    this.broadcast({ type: "suite-complete", suiteId: plan.suiteId, rating: report.summary.rating });
     this.activePlan = undefined;
     this.testingClientId = undefined;
     this.emit("state", this.getState());
@@ -250,6 +265,11 @@ export class ControlServer extends EventEmitter {
     if (client) this.clients.set(clientId, { ...client, status: "connected" });
     this.testingClientId = undefined;
     this.dispatchNext(); // keeps whatever partial phase-results were collected
+  }
+
+  private pushLog(line: string): void {
+    this.logLines = appendLog(this.logLines, stamp(line));
+    this.emit("state", this.getState());
   }
 
   broadcast(message: ControlMessage): void {

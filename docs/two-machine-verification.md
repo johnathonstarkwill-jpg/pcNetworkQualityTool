@@ -32,6 +32,15 @@ Prerequisites:
 Note: connectivity and latency phases are not measured in this version; the
 report covers the three iperf throughput/loss/jitter phases.
 
+## Live progress + suite coloring
+
+9. **During a suite run:** both the server 运行日志 and the client 运行日志 scroll
+   with per-second lines like `TCP 上行 3s: 137.0 Mbps` (server lines are
+   prefixed with the client name).
+10. **While running:** the suite button (server) and the client 当前套件 bar show
+    blue/pulsing; on completion they turn green (优秀/合格), amber (风险), or red
+    (不合格) per the report rating.
+
 ## Pass criteria
 
 - Discovery OR manual-IP connect works in at least one direction.
