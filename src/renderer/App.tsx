@@ -73,9 +73,11 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
   const hasClients = (state?.clients.filter((c) => c.status !== "disconnected").length ?? 0) > 0;
 
   async function startTest(suiteId: TestSuiteId) {
-    const started = await window.networkTool.startTest(suiteId);
-    if (!started) {
-      alert("暂无客户端连接，无法开始测试");
+    try {
+      const started = await window.networkTool.startTest(suiteId);
+      if (!started) alert("暂无客户端连接，无法开始测试");
+    } catch {
+      alert("启动测试时发生错误，请重试");
     }
   }
 
