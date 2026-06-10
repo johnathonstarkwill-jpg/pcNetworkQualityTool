@@ -26,6 +26,7 @@ export class ControlServer extends EventEmitter {
 
   private queue: string[] = [];
   private readonly results = new Map<string, PhaseMetrics[]>();
+  private runTimer: NodeJS.Timeout | undefined;
 
   getState(): ServerSessionState {
     return {
@@ -70,6 +71,7 @@ export class ControlServer extends EventEmitter {
       this.listening = false;
       this.queue = [];
       this.testingClientId = undefined;
+      this.clearRunTimer();
 
       if (!this.netServer) {
         resolve();
@@ -132,6 +134,7 @@ export class ControlServer extends EventEmitter {
     this.markClientDisconnected(clientId);
     if (this.testingClientId === clientId) {
       this.testingClientId = undefined;
+      this.clearRunTimer();
       this.dispatchNext();
     } else {
       this.queue = this.queue.filter((id) => id !== clientId);
@@ -139,6 +142,10 @@ export class ControlServer extends EventEmitter {
   }
 
   startPlan(plan: TestPlan, clientIds: string[]): void {
+    if (this.activePlan) {
+      console.warn("control server: startPlan ignored, a run is already in progress");
+      return;
+    }
     this.activePlan = plan;
     this.latestReport = undefined;
     this.results.clear();
@@ -148,43 +155,55 @@ export class ControlServer extends EventEmitter {
   }
 
   private dispatchNext(): void {
-    const nextId = this.queue.shift();
-    if (!nextId) {
-      this.finalizeRun();
-      return;
-    }
-    const socket = this.sockets.get(nextId);
-    if (!socket) {
-      this.dispatchNext();
-      return;
-    }
-    const client = this.clients.get(nextId);
-    if (client) this.clients.set(nextId, { ...client, status: "testing" });
-    this.testingClientId = nextId;
-    this.results.set(nextId, []);
+    for (;;) {
+      const nextId = this.queue.shift();
+      if (!nextId) {
+        this.finalizeRun();
+        return;
+      }
+      const socket = this.sockets.get(nextId);
+      if (!socket) continue; // client gone before its turn; skip
 
-    const serverAddress = this.localAddresses[0] ?? "127.0.0.1";
-    socket.write(encode({ type: "start-test", plan: this.activePlan as TestPlan, serverAddress }));
-    this.emit("state", this.getState());
+      const client = this.clients.get(nextId);
+      if (client) this.clients.set(nextId, { ...client, status: "testing" });
+      this.testingClientId = nextId;
+      this.results.set(nextId, []);
+
+      const serverAddress = this.localAddresses[0] ?? "127.0.0.1";
+      socket.write(encode({ type: "start-test", plan: this.activePlan as TestPlan, serverAddress }));
+      this.startRunTimer(nextId);
+      this.emit("state", this.getState());
+      return;
+    }
   }
 
   private recordPhaseResult(clientId: string, metrics: PhaseMetrics): void {
     const list = this.results.get(clientId);
-    if (list) list.push(metrics);
+    if (list) this.results.set(clientId, [...list, metrics]);
     this.emit("phase-result", clientId);
   }
 
   private handleTestComplete(clientId: string): void {
     const client = this.clients.get(clientId);
     if (client) this.clients.set(clientId, { ...client, status: "connected" });
-    if (this.testingClientId === clientId) this.testingClientId = undefined;
     this.emit("test-complete", clientId);
+    if (this.testingClientId !== clientId) return; // stale/unknown completion: ignore
+    this.testingClientId = undefined;
+    this.clearRunTimer();
     this.dispatchNext();
   }
 
   private finalizeRun(): void {
+    this.clearRunTimer();
     const plan = this.activePlan;
     if (!plan) return;
+
+    if (this.results.size === 0) {
+      this.activePlan = undefined;
+      this.testingClientId = undefined;
+      this.emit("state", this.getState());
+      return;
+    }
 
     const results: ClientTestResult[] = [...this.results.entries()].map(([clientId, phases]) => ({
       clientId,
@@ -207,6 +226,30 @@ export class ControlServer extends EventEmitter {
     this.activePlan = undefined;
     this.testingClientId = undefined;
     this.emit("state", this.getState());
+  }
+
+  private startRunTimer(clientId: string): void {
+    this.clearRunTimer();
+    const plan = this.activePlan;
+    const totalSeconds = plan ? plan.phases.reduce((sum, phase) => sum + phase.durationSeconds, 0) : 0;
+    const timeoutMs = totalSeconds * 1000 + 30_000; // generous grace beyond the planned duration
+    this.runTimer = setTimeout(() => this.handleRunTimeout(clientId), timeoutMs);
+    // Do not keep the process alive solely for this timer.
+    this.runTimer.unref?.();
+  }
+
+  private clearRunTimer(): void {
+    if (this.runTimer) clearTimeout(this.runTimer);
+    this.runTimer = undefined;
+  }
+
+  private handleRunTimeout(clientId: string): void {
+    if (this.testingClientId !== clientId) return;
+    console.warn(`control server: client ${clientId} timed out; skipping`);
+    const client = this.clients.get(clientId);
+    if (client) this.clients.set(clientId, { ...client, status: "connected" });
+    this.testingClientId = undefined;
+    this.dispatchNext(); // keeps whatever partial phase-results were collected
   }
 
   broadcast(message: ControlMessage): void {

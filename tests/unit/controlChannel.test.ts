@@ -162,6 +162,37 @@ describe("ControlServer.startPlan orchestration", () => {
     b.disconnect();
     await srv.close();
   });
+
+  it("ignores a stale test-complete and a re-entrant startPlan", async () => {
+    const srv = new ControlServer();
+    const port = await srv.listen(0);
+
+    const exec = async (input: { phaseKind: string }) => {
+      await new Promise((r) => setTimeout(r, 10));
+      return { phaseId: input.phaseKind, throughputMbps: 10, udpLossPercent: 0, jitterMs: 1, errors: [] };
+    };
+    const { ControlClient } = await import("../../src/main/controlClient");
+    const c = await new Promise<InstanceType<typeof ControlClient>>((resolve) => {
+      const cc = new ControlClient({ iperfExec: exec as never, id: "solo", name: "solo" });
+      cc.on("state", (s) => { if (s.status === "connected" && s.statusText.includes("等待")) resolve(cc); });
+      cc.connectToAddress("127.0.0.1", port);
+    });
+
+    const reported = new Promise<import("../../src/shared/types").ServerSessionState>((resolve) => {
+      srv.on("state", (s) => { if (s.latestReport) resolve(s); });
+    });
+    const { buildTestPlan } = await import("../../src/main/testPlans");
+    srv.startPlan(buildTestPlan("quick-check", "separate"), ["solo"]);
+    // Re-entrant call while running must be ignored (no throw, no clobber).
+    srv.startPlan(buildTestPlan("quick-check", "separate"), ["solo"]);
+
+    const finalState = await reported;
+    expect(finalState.latestReport?.results.length).toBe(1);
+    expect(finalState.latestReport?.results[0].phases.length).toBe(3);
+
+    c.disconnect();
+    await srv.close();
+  });
 });
 
 describe("ControlClient plan execution", () => {
