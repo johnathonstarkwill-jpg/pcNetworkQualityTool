@@ -92,6 +92,7 @@ export interface ServerSessionState {
   latestReport?: TestReport;
   listening: boolean;
   localAddresses: string[];
+  testingClientId?: string;
 }
 
 export interface ClientSessionState {
