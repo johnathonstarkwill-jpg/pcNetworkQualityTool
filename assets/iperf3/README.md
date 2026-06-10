@@ -44,3 +44,9 @@ When the app is packaged, electron-builder signs the `.app` (and its bundled
 resources) during the macOS build, so a properly-signed binary is shipped.
 Verify a binary is runnable with `codesign -v <path>` and a quick
 `<path> -c 127.0.0.1 -t 1` against a local `iperf3 -s`.
+
+## Version requirement
+
+The app uses `iperf3 --json-stream` for per-second live progress, which requires
+**iperf3 ≥ 3.17**. Older builds (e.g. 3.1.x) do not support `--json-stream` and
+will fail every phase. Use a 3.17+ binary on every platform.
