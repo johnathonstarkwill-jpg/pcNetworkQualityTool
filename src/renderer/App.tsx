@@ -74,6 +74,7 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
   const hasClients = (state?.clients.filter((c) => c.status !== "disconnected").length ?? 0) > 0;
 
   async function exportMarkdown() {
+    setExportNote("");
     try {
       const result = await window.networkTool.exportReportMarkdown();
       if (result.saved) setExportNote(`已导出：${result.path ?? ""}`);
