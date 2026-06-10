@@ -92,6 +92,60 @@ export function renderReportHtml(report: TestReport): string {
 </html>`;
 }
 
+export function renderReportMarkdown(report: TestReport, log: string[]): string {
+  const clientRows = report.clients
+    .map((client) => `| ${mdCell(client.name)} | ${mdCell(client.address)} | ${mdCell(client.status)} |`)
+    .join("\n");
+
+  const resultRows = report.results
+    .flatMap((result) =>
+      result.phases.map(
+        (phase) =>
+          `| ${mdCell(result.clientName)} | ${mdCell(phase.phaseId)} | ${formatNumber(phase.throughputMbps)} | ${formatNumber(phase.udpLossPercent)} | ${formatNumber(phase.jitterMs)} | ${mdCell(phase.errors.join("; "))} |`
+      )
+    )
+    .join("\n");
+
+  const logBlock = log.length > 0 ? log.join("\n") : "(无日志)";
+
+  return `# 网络质量测试报告
+
+**评级：** ${report.summary.rating}
+
+${report.summary.conclusion}
+
+${report.summary.recommendation}
+
+## 测试信息
+
+- 时间：${report.createdAt}
+- 服务器：${report.serverName} - ${report.serverAddress}
+- 套件：${report.suiteId}
+
+## 客户端
+
+| 名称 | IP | 状态 |
+| --- | --- | --- |
+${clientRows}
+
+## 详细指标
+
+| 客户端 | 阶段 | 吞吐量 Mbps | UDP 丢包 % | 抖动 ms | 错误 |
+| --- | --- | --- | --- | --- | --- |
+${resultRows}
+
+## 运行日志
+
+\`\`\`
+${logBlock}
+\`\`\`
+`;
+}
+
+function mdCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
 function maxDefined(values: Array<number | undefined>): number | undefined {
   const defined = values.filter((value): value is number => value !== undefined);
   return defined.length === 0 ? undefined : Math.max(...defined);
