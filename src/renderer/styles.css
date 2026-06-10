@@ -257,3 +257,19 @@ button:hover {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.72; }
 }
+
+.suite-button.suite-pass:hover {
+  background: #156e33;
+}
+
+.suite-button.suite-risk:hover {
+  background: #a07f00;
+}
+
+.suite-button.suite-fail:hover {
+  background: #9e2f23;
+}
+
+.suite-button.suite-running:hover {
+  background: #0d4f88;
+}

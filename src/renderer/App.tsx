@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AppRole, ClientSessionState, ServerSessionState, TestSuiteId } from "../shared/types";
+import type { AppRole, ClientSessionState, ReportSummary, ServerSessionState, TestSuiteId } from "../shared/types";
 
 interface SuiteView {
   id: TestSuiteId;
@@ -262,7 +262,7 @@ function format(value: number | undefined): string {
   return value === undefined ? "-" : value.toFixed(2);
 }
 
-type Rating = "优秀" | "合格" | "风险" | "不合格";
+type Rating = ReportSummary["rating"];
 
 function ratingClass(rating: Rating | undefined): string {
   if (rating === "优秀" || rating === "合格") return "suite-pass";
@@ -278,7 +278,7 @@ function LogConsole({ lines }: { lines: string[] }) {
   }, [lines]);
   return (
     <pre className="log-console" ref={ref}>
-      {lines.join("\n")}
+      {lines.length > 0 ? lines.join("\n") : "// 暂无日志"}
     </pre>
   );
 }
