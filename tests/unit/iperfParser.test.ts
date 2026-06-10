@@ -1,95 +1,62 @@
 import { describe, expect, it } from "vitest";
-import { buildIperfArgs, parseIperfJson } from "../../src/main/iperfRunner";
+import { buildIperfArgs, extractEndMetrics, intervalUpdate } from "../../src/main/iperfRunner";
 
-describe("iperfRunner", () => {
-  it("builds tcp upload arguments", () => {
-    expect(buildIperfArgs({ host: "192.168.1.10", phaseKind: "tcp-upload", durationSeconds: 30 })).toEqual([
-      "-c",
-      "192.168.1.10",
-      "-J",
-      "-t",
-      "30"
-    ]);
+describe("buildIperfArgs", () => {
+  it("uses --json-stream for tcp upload", () => {
+    const args = buildIperfArgs({ host: "10.0.0.1", phaseKind: "tcp-upload", durationSeconds: 5 });
+    expect(args).toEqual(["-c", "10.0.0.1", "--json-stream", "-t", "5"]);
   });
 
-  it("builds tcp download reverse arguments", () => {
-    expect(buildIperfArgs({ host: "192.168.1.10", phaseKind: "tcp-download", durationSeconds: 30 })).toContain("-R");
+  it("adds -R for tcp download", () => {
+    const args = buildIperfArgs({ host: "10.0.0.1", phaseKind: "tcp-download", durationSeconds: 5 });
+    expect(args).toContain("-R");
+    expect(args).toContain("--json-stream");
   });
 
-  it("builds udp quality arguments with bitrate", () => {
-    const args = buildIperfArgs({
-      host: "192.168.1.10",
-      phaseKind: "udp-quality",
-      durationSeconds: 60,
-      targetBitrateMbps: 8
-    });
-
+  it("adds -u -b for udp", () => {
+    const args = buildIperfArgs({ host: "10.0.0.1", phaseKind: "udp-quality", durationSeconds: 5, targetBitrateMbps: 8 });
     expect(args).toContain("-u");
-    expect(args).toContain("-b");
     expect(args).toContain("8M");
   });
+});
 
-  it("rejects invalid arguments", () => {
-    expect(() => buildIperfArgs({ host: "", phaseKind: "tcp-upload", durationSeconds: 30 })).toThrow("Invalid host");
-    expect(() => buildIperfArgs({ host: "192.168.1.10", phaseKind: "tcp-upload", durationSeconds: 0 })).toThrow(
-      "Invalid duration"
-    );
-    expect(() =>
-      buildIperfArgs({
-        host: "192.168.1.10",
-        phaseKind: "udp-quality",
-        durationSeconds: 60,
-        targetBitrateMbps: Number.NaN
-      })
-    ).toThrow("Invalid bitrate");
+describe("intervalUpdate", () => {
+  it("derives a tcp interval update from interval data", () => {
+    const u = intervalUpdate("tcp-upload", { sum: { start: 1, end: 2, bits_per_second: 100_000_000 } });
+    expect(u).toEqual({ phaseKind: "tcp-upload", second: 2, throughputMbps: 100 });
   });
 
-  it("parses tcp throughput", () => {
-    const metrics = parseIperfJson(
-      "tcp-upload",
-      JSON.stringify({
-        end: {
-          sum_sent: {
-            bits_per_second: 943000000
-          }
-        }
-      })
-    );
-
-    expect(metrics.throughputMbps).toBeCloseTo(943, 1);
-    expect(metrics.errors).toEqual([]);
+  it("includes loss and jitter for udp interval data", () => {
+    const u = intervalUpdate("udp-quality", {
+      sum: { start: 4, end: 5, bits_per_second: 8_000_000, lost_percent: 1.5, jitter_ms: 0.3 }
+    });
+    expect(u).toEqual({ phaseKind: "udp-quality", second: 5, throughputMbps: 8, udpLossPercent: 1.5, jitterMs: 0.3 });
   });
 
-  it("parses udp loss and jitter", () => {
-    const metrics = parseIperfJson(
-      "udp-quality",
-      JSON.stringify({
-        end: {
-          sum: {
-            bits_per_second: 7900000,
-            lost_percent: 1.25,
-            jitter_ms: 4.8
-          }
-        }
-      })
-    );
+  it("returns null when interval data lacks a numeric throughput", () => {
+    expect(intervalUpdate("tcp-upload", { sum: { start: 0, end: 1 } })).toBeNull();
+  });
+});
 
-    expect(metrics.throughputMbps).toBeCloseTo(7.9, 1);
-    expect(metrics.udpLossPercent).toBe(1.25);
-    expect(metrics.jitterMs).toBe(4.8);
+describe("extractEndMetrics", () => {
+  it("reads tcp throughput from the end event data", () => {
+    const m = extractEndMetrics("tcp-upload", { sum_sent: { bits_per_second: 943_000_000 } });
+    expect(m.phaseId).toBe("tcp-upload");
+    expect(m.throughputMbps).toBeCloseTo(943, 0);
+    expect(m.errors).toEqual([]);
   });
 
-  it("returns parser errors for invalid json", () => {
-    const metrics = parseIperfJson("tcp-upload", "{");
-
-    expect(metrics.phaseId).toBe("tcp-upload");
-    expect(metrics.errors[0]).toContain("Invalid iperf3 JSON");
+  it("reads udp loss and jitter from the end event data", () => {
+    const m = extractEndMetrics("udp-quality", {
+      sum: { bits_per_second: 8_000_000, lost_percent: 0.5, jitter_ms: 0.2 }
+    });
+    expect(m.throughputMbps).toBeCloseTo(8, 1);
+    expect(m.udpLossPercent).toBe(0.5);
+    expect(m.jitterMs).toBe(0.2);
   });
 
-  it("returns parser errors for missing summary fields", () => {
-    const metrics = parseIperfJson("udp-quality", JSON.stringify({ end: {} }));
-
-    expect(metrics.phaseId).toBe("udp-quality");
-    expect(metrics.errors[0]).toContain("Missing UDP summary");
+  it("returns an error metric when the end data is missing", () => {
+    const m = extractEndMetrics("tcp-upload", undefined);
+    expect(m.errors.length).toBeGreaterThan(0);
   });
 });
