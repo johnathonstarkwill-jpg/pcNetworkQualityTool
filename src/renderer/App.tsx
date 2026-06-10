@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { AppRole, ClientSessionState, ServerSessionState, TestSuiteId } from "../shared/types";
 
 interface SuiteView {
@@ -122,22 +122,28 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
           <h2>测试套件</h2>
           {testing ? <p className="empty">测试进行中…</p> : null}
           <div className="suite-list">
-            {suites.map((suite) => (
-              <button
-                key={suite.id}
-                type="button"
-                className="suite-button"
-                disabled={testing || !hasClients}
-                onClick={() => void startTest(suite.id)}
-              >
-                <strong>{suite.label}</strong>
-                <span>{suite.description}</span>
-              </button>
-            ))}
+            {suites.map((suite) => {
+              const colorClass =
+                state?.activePlan?.suiteId === suite.id ? "suite-running" : ratingClass(state?.suiteRatings[suite.id]);
+              return (
+                <button
+                  key={suite.id}
+                  type="button"
+                  className={`suite-button ${colorClass}`.trim()}
+                  disabled={testing || !hasClients}
+                  onClick={() => void startTest(suite.id)}
+                >
+                  <strong>{suite.label}</strong>
+                  <span>{suite.description}</span>
+                </button>
+              );
+            })}
           </div>
           {reportHtml ? (
             <div className="report-preview" dangerouslySetInnerHTML={{ __html: reportHtml }} />
           ) : null}
+          <h2>运行日志</h2>
+          <LogConsole lines={state?.log ?? []} />
         </div>
       </section>
     </main>
@@ -167,6 +173,16 @@ function ClientScreen({ onBack }: { onBack: () => void }) {
           返回
         </button>
       </header>
+      {state?.currentSuite ? (
+        <div
+          className={`suite-status ${
+            state.currentSuite.status === "running" ? "suite-running" : ratingClass(state.currentSuite.status)
+          }`.trim()}
+        >
+          当前套件：{state.currentSuite.label} ·{" "}
+          {state.currentSuite.status === "running" ? "进行中" : state.currentSuite.status}
+        </div>
+      ) : null}
       <section className="panel">
         <h2>服务器搜索</h2>
         {state && state.discoveredServers.length > 0 ? (
@@ -229,6 +245,8 @@ function ClientScreen({ onBack }: { onBack: () => void }) {
             ) : null}
           </div>
         ) : null}
+        <h2>运行日志</h2>
+        <LogConsole lines={state?.log ?? []} />
       </section>
     </main>
   );
@@ -242,4 +260,25 @@ const CLIENT_STATUS_LABELS: Record<"connected" | "testing" | "disconnected", str
 
 function format(value: number | undefined): string {
   return value === undefined ? "-" : value.toFixed(2);
+}
+
+type Rating = "优秀" | "合格" | "风险" | "不合格";
+
+function ratingClass(rating: Rating | undefined): string {
+  if (rating === "优秀" || rating === "合格") return "suite-pass";
+  if (rating === "风险") return "suite-risk";
+  if (rating === "不合格") return "suite-fail";
+  return "";
+}
+
+function LogConsole({ lines }: { lines: string[] }) {
+  const ref = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
+  }, [lines]);
+  return (
+    <pre className="log-console" ref={ref}>
+      {lines.join("\n")}
+    </pre>
+  );
 }
