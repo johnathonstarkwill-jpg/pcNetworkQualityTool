@@ -10,7 +10,7 @@ declare global {
       getLocalAddresses(): Promise<string[]>;
       getPermissionGuidance(): Promise<{ platform: string; requiresAdminForRepair: boolean; messages: string[] }>;
       getSampleReportHtml(): Promise<string>;
-      startTest(suiteId: TestSuiteId): Promise<boolean>;
+      startTest(suiteId: TestSuiteId, clientIds?: string[]): Promise<boolean>;
       getLatestReportHtml(): Promise<string>;
       exportReportMarkdown(): Promise<{ saved: boolean; path?: string }>;
       listTestSuites(): Promise<Array<{ id: TestSuiteId; label: string; description: string }>>;
