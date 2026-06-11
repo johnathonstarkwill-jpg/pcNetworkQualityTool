@@ -13,7 +13,8 @@
     "e2e": "playwright test",
     "package": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
-    "fetch:iperf3": "node scripts/fetch-iperf3.mjs"
+    "fetch:iperf3": "node scripts/fetch-iperf3.mjs",
+    "icon": "node scripts/render-icon.mjs"
   },
   "dependencies": {
     "electron-is-dev": "^3.0.1",
