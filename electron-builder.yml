@@ -9,8 +9,10 @@ extraResources:
   - from: assets/iperf3
     to: iperf3
 mac:
+  icon: build/icon.png
   target:
     - dmg
 win:
+  icon: build/icon.png
   target:
     - nsis
