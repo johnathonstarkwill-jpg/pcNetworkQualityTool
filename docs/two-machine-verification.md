@@ -48,6 +48,12 @@ report covers the three iperf throughput/loss/jitter phases.
     info, client table, the per-phase metrics table, and a 运行日志 section with
     this run's log lines.
 
+## Selecting clients (multiple connected)
+
+12. **Server, with 2 clients connected:** each appears in 已连接客户端 with a
+    checkbox (default checked). Uncheck one, then click a suite — only the checked
+    client(s) run. With nothing checked, the suite buttons are disabled.
+
 ## Pass criteria
 
 - Discovery OR manual-IP connect works in at least one direction.
