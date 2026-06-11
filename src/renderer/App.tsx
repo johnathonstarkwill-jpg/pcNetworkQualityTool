@@ -57,10 +57,12 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
   const [reportHtml, setReportHtml] = useState<string>("");
   const [exportNote, setExportNote] = useState<string>("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Intentionally never cleared: a reconnecting client is treated as known
+  // (kept unchecked unless it was still selected), not auto-reselected.
   const seenRef = useRef<Set<string>>(new Set());
 
   const connectedIds = state?.clients.filter((c) => c.status === "connected").map((c) => c.id) ?? [];
-  const connectedKey = connectedIds.join(",");
+  const connectedKey = [...connectedIds].sort().join(",");
 
   useEffect(() => {
     const newlyConnected = connectedIds.filter((id) => !seenRef.current.has(id));

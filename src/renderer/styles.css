@@ -298,3 +298,7 @@ button:hover {
   width: 16px;
   height: 16px;
 }
+
+.client-row:has(input:disabled) {
+  cursor: default;
+}
