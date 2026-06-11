@@ -24,19 +24,19 @@ set ELECTRON_MIRROR=https://github.com/electron/electron/releases/download/
 npm install
 ```
 
-## 3. 放入 Windows 版 iperf3（必须，否则测试功能跑不了）
+## 3. Windows 版 iperf3
 
 应用按 `iperf3 --json-stream` 取每秒数据，**要求 iperf3 ≥ 3.17**。
 
-1. 下载 64 位 Windows 版 iperf3 3.17+（通常是个 zip，内含 `iperf3.exe` 加
-   `cygwin1.dll` 等 DLL）。
-2. 把 `iperf3.exe` **和所有 `cygwin*.dll`** 一起放进：
-   ```
-   assets\iperf3\win32-x64\
-   ```
+**本包通常已自带**：如果 `assets\iperf3\win32-x64\` 里已有 `iperf3.exe` 加
+`cygwin1.dll` / `cygcrypto-3.dll` / `cygz.dll`（用 `scripts/pack-win-zip.sh`
+打的包会带上 iperf3 3.21），**这步可跳过**，直接到第 4 步。
 
-> `scripts\fetch-iperf3.mjs` 里的 URL 是占位符，别依赖它；手动放最稳妥。
-> 仅打安装包、不在本机实测的话，可跳过这步（运行时缺文件才报错）。
+如果该目录是空的，手动放：
+1. 下载 64 位 Windows 版 iperf3 3.17+（zip，内含 `iperf3.exe` + `cygwin*.dll`）。
+2. 把 `iperf3.exe` **和所有 `cyg*.dll`** 一起放进 `assets\iperf3\win32-x64\`。
+
+> `scripts\fetch-iperf3.mjs` 里的 URL 是占位符，别依赖它。
 
 ## 4. 出安装包
 
