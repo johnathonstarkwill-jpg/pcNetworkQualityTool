@@ -62,13 +62,14 @@ export function registerIpcHandlers(getWebContents: () => WebContents | undefine
     return buildTestPlan(suiteId, runMode);
   });
 
-  ipcMain.handle("server:start-test", (_event, suiteId: TestSuiteId) => {
+  ipcMain.handle("server:start-test", (_event, suiteId: TestSuiteId, clientIds?: string[]) => {
     const connectedIds = server
       .getState()
       .clients.filter((c) => c.status === "connected")
       .map((c) => c.id);
-    if (connectedIds.length === 0) return false;
-    server.startPlan(buildTestPlan(suiteId, "separate"), connectedIds);
+    const ids = clientIds ? connectedIds.filter((id) => clientIds.includes(id)) : connectedIds;
+    if (ids.length === 0) return false;
+    server.startPlan(buildTestPlan(suiteId, "separate"), ids);
     return true;
   });
 

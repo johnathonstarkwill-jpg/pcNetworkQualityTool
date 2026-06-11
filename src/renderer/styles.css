@@ -286,3 +286,19 @@ button:hover {
   font-size: 14px;
   word-break: break-all;
 }
+
+.client-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.client-row input {
+  width: 16px;
+  height: 16px;
+}
+
+.client-row:has(input:disabled) {
+  cursor: default;
+}

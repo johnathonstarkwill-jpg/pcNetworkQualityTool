@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld("networkTool", {
   getPermissionGuidance: () => ipcRenderer.invoke("permissions:get-guidance") as Promise<unknown>,
   getRole: () => ipcRenderer.invoke("app:get-role") as Promise<AppRole>,
   getSampleReportHtml: () => ipcRenderer.invoke("reports:sample-html") as Promise<string>,
-  startTest: (suiteId: TestSuiteId) => ipcRenderer.invoke("server:start-test", suiteId) as Promise<boolean>,
+  startTest: (suiteId: TestSuiteId, clientIds?: string[]) =>
+    ipcRenderer.invoke("server:start-test", suiteId, clientIds) as Promise<boolean>,
   getLatestReportHtml: () => ipcRenderer.invoke("reports:latest-html") as Promise<string>,
   exportReportMarkdown: () =>
     ipcRenderer.invoke("reports:export-markdown") as Promise<{ saved: boolean; path?: string }>,

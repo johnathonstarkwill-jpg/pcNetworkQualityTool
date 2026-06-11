@@ -56,6 +56,36 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
   const [state, setState] = useState<ServerSessionState | undefined>(undefined);
   const [reportHtml, setReportHtml] = useState<string>("");
   const [exportNote, setExportNote] = useState<string>("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Intentionally never cleared: a reconnecting client is treated as known
+  // (kept unchecked unless it was still selected), not auto-reselected.
+  const seenRef = useRef<Set<string>>(new Set());
+
+  const connectedIds = state?.clients.filter((c) => c.status === "connected").map((c) => c.id) ?? [];
+  const connectedKey = [...connectedIds].sort().join(",");
+
+  useEffect(() => {
+    const newlyConnected = connectedIds.filter((id) => !seenRef.current.has(id));
+    connectedIds.forEach((id) => seenRef.current.add(id));
+    setSelectedIds((prev) => {
+      const next = new Set<string>();
+      for (const id of connectedIds) {
+        // default-select clients we have not seen before; otherwise keep the operator's choice
+        if (newlyConnected.includes(id) || prev.has(id)) next.add(id);
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connectedKey]);
+
+  function toggleClient(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!window.networkTool) return;
@@ -71,7 +101,6 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
   }, [reportId]);
 
   const testing = Boolean(state?.activePlan);
-  const hasClients = (state?.clients.filter((c) => c.status !== "disconnected").length ?? 0) > 0;
 
   async function exportMarkdown() {
     setExportNote("");
@@ -85,8 +114,8 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
 
   async function startTest(suiteId: TestSuiteId) {
     try {
-      const started = await window.networkTool.startTest(suiteId);
-      if (!started) alert("暂无客户端连接，无法开始测试");
+      const started = await window.networkTool.startTest(suiteId, [...selectedIds]);
+      if (!started) alert("请选择至少一个已连接客户端，再开始测试");
     } catch {
       alert("启动测试时发生错误，请重试");
     }
@@ -120,8 +149,18 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
             <ul className="client-list">
               {state.clients.map((c) => (
                 <li key={c.id}>
-                  {c.name}（{c.address}）— {CLIENT_STATUS_LABELS[c.status]}
-                  {state.testingClientId === c.id ? " · 测试中" : ""}
+                  <label className="client-row">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(c.id)}
+                      disabled={c.status !== "connected" || testing}
+                      onChange={() => toggleClient(c.id)}
+                    />
+                    <span>
+                      {c.name}（{c.address}）— {CLIENT_STATUS_LABELS[c.status]}
+                      {state.testingClientId === c.id ? " · 测试中" : ""}
+                    </span>
+                  </label>
                 </li>
               ))}
             </ul>
@@ -141,7 +180,7 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
                   key={suite.id}
                   type="button"
                   className={`suite-button ${colorClass}`.trim()}
-                  disabled={testing || !hasClients}
+                  disabled={testing || selectedIds.size === 0}
                   onClick={() => void startTest(suite.id)}
                 >
                   <strong>{suite.label}</strong>

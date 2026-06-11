@@ -299,3 +299,41 @@ describe("ControlClient logging and currentSuite", () => {
     await srv.close();
   });
 });
+
+describe("ControlServer.startPlan client subset", () => {
+  it("runs only the selected client and excludes the other", async () => {
+    const srv = new ControlServer();
+    const port = await srv.listen(0);
+
+    const exec = async (input: { phaseKind: string }) => {
+      await new Promise((r) => setTimeout(r, 5));
+      return { phaseId: input.phaseKind, throughputMbps: 10, udpLossPercent: 0, jitterMs: 1, errors: [] };
+    };
+    const { ControlClient } = await import("../../src/main/controlClient");
+    const mk = (id: string) =>
+      new Promise<InstanceType<typeof ControlClient>>((resolve) => {
+        const c = new ControlClient({ iperfExec: exec as never, id, name: id });
+        c.on("state", (s) => { if (s.status === "connected" && s.statusText.includes("等待")) resolve(c); });
+        c.connectToAddress("127.0.0.1", port);
+      });
+
+    const a = await mk("A");
+    const b = await mk("B");
+
+    const reported = new Promise<import("../../src/shared/types").ServerSessionState>((resolve) => {
+      srv.on("state", (s) => { if (s.latestReport) resolve(s); });
+    });
+    const { buildTestPlan } = await import("../../src/main/testPlans");
+    srv.startPlan(buildTestPlan("quick-check", "separate"), ["A"]); // only A
+
+    const finalState = await reported;
+    expect(finalState.latestReport?.results.length).toBe(1);
+    expect(finalState.latestReport?.results[0].clientId).toBe("A");
+    // B was never asked to test.
+    expect(b.getState().currentSuite).toBeUndefined();
+
+    a.disconnect();
+    b.disconnect();
+    await srv.close();
+  });
+});
