@@ -51,7 +51,7 @@ Screenshots land in `/tmp/shots/` (override: `SCREENSHOT_DIR`).
 |---|---|
 | `launch` | launch the app, report whether the `networkTool` bridge is live |
 | `ss [name]` | full-page screenshot -> `/tmp/shots/<name>.png` |
-| `click-text <text>` | click button/link containing text (e.g. `作为服务器`, `预览报告`, `返回`, `作为客户端`) |
+| `click-text <text>` | click button/link containing text (e.g. `作为服务器`, `返回`, `作为客户端`) |
 | `type <text>` | keyboard input (e.g. into the manual-IP field) |
 | `text [css-sel]` | print innerText of selector (or whole body) |
 | `eval <js>` | evaluate JS in the page, print JSON |

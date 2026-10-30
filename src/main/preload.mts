@@ -2,19 +2,15 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import type { AppRole, ClientSessionState, ServerSessionState, TestSuiteId } from "../shared/types.js";
 
 contextBridge.exposeInMainWorld("networkTool", {
-  buildPlan: (suiteId: TestSuiteId, runMode: "single" | "separate" | "concurrent") =>
-    ipcRenderer.invoke("tests:build-plan", suiteId, runMode),
   getClientState: () => ipcRenderer.invoke("client:get-state") as Promise<ClientSessionState>,
   getPermissionGuidance: () => ipcRenderer.invoke("permissions:get-guidance") as Promise<unknown>,
   getRole: () => ipcRenderer.invoke("app:get-role") as Promise<AppRole>,
-  getSampleReportHtml: () => ipcRenderer.invoke("reports:sample-html") as Promise<string>,
   startTest: (suiteId: TestSuiteId, clientIds?: string[]) =>
     ipcRenderer.invoke("server:start-test", suiteId, clientIds) as Promise<boolean>,
   getLatestReportHtml: () => ipcRenderer.invoke("reports:latest-html") as Promise<string>,
   exportReportMarkdown: () =>
     ipcRenderer.invoke("reports:export-markdown") as Promise<{ saved: boolean; path?: string }>,
   getServerState: () => ipcRenderer.invoke("server:get-state") as Promise<ServerSessionState>,
-  getLocalAddresses: () => ipcRenderer.invoke("net:local-addresses") as Promise<string[]>,
   listTestSuites: () => ipcRenderer.invoke("tests:list-suites") as Promise<unknown>,
   setRole: (role: AppRole) => ipcRenderer.invoke("app:set-role", role) as Promise<AppRole>,
   connectToServer: (serverId: string) => ipcRenderer.invoke("client:connect", serverId) as Promise<void>,

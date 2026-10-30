@@ -1,86 +1,42 @@
-# Two-Machine Verification (Windows + Mac)
+# 双机与多客户端验证
 
-Prerequisites:
-- Both machines on the same LAN / subnet.
-- iperf3 binaries fetched (`npm run fetch:iperf3`) and app built (`npm run build`).
-- Firewall: allow the app when the OS prompts (Windows Defender / macOS local network).
+两端使用同一版本，位于可互相访问的局域网。使用源码时先准备 iperf3 并构建；使用安装包无需额外安装 iperf3。
 
-## Steps
+## 连接与发现
 
-1. **Mac (server):** launch the app, choose 作为服务器.
-   - Expect: 本机地址 lists the Mac's LAN IPv4 (e.g. 192.168.x.y).
-   - Expect: an `iperf3 -s` process is running.
-2. **Windows (client):** launch the app, choose 作为客户端.
-   - Expect: the Mac server appears in 服务器搜索 within a few seconds (auto-discovery),
-     OR type the Mac IP into 手动输入服务器 IP and click 连接.
-3. **Windows:** confirm status becomes 已连接，等待服务器开始测试.
-4. **Mac:** confirm the Windows client appears under 已连接客户端 with status 已连接.
-5. **Windows:** click 测试到服务器.
-   - Expect: status 测试中…, then a result table with TCP throughput (Mbps),
-     UDP loss (%), and jitter (ms).
-6. **Reverse roles** (Windows server, Mac client) and repeat steps 1–5.
+1. Mac 选择“作为服务器”，确认本机局域网 IPv4 已显示。
+2. Windows 选择“作为客户端”，通过自动发现连接；发现失败时手动输入 Mac 的物理网卡 IP。
+3. 确认客户端显示“已连接，等待服务器开始测试”，服务端列表出现该客户端。
+4. 交换角色重复，分别验证 Mac 服务端和 Windows 服务端。
 
-## Suite run (server-orchestrated)
+服务端按网卡 IPv4/掩码计算子网广播地址并绑定源地址；客户端同时接收 UDP 48101 通告，并向 UDP 48102 查询，服务端单播回复。网络切换后刷新接口。VPN 隧道及 198.18/15 网段不参与自动发现，仍可手动 IP 连接。
 
-7. **Server:** with at least one client connected, click a suite (e.g. 快速检测).
-   - Expect: connected clients show "· 测试中" in turn (sequential, one at a time).
-   - Expect: each client's status text cycles through 正在测试 TCP 上行/下行/UDP …
-8. **Server:** when all clients finish, a report renders inline under 测试套件
-   with the rating, per-client table, and the three iperf phases
-   (tcp-upload, tcp-download, udp-quality) per client.
+## 套件与数据
 
-Note: connectivity and latency phases are not measured in this version; the
-report covers the three iperf throughput/loss/jitter phases.
+服务端勾选客户端并启动套件，客户端依次执行：TCP 控制端口连通性、空载 ICMP RTT、TCP 上行、TCP 下行、UDP 上行和 UDP 下行。
 
-## Live progress + suite coloring
+- TCP 期间同时采集负载 RTT，并与同轮空载 RTT 比较。
+- 界面显示实时吞吐趋势；完成后报告包含阶段指标、负载延迟和稳定性统计。
+- 没有采集或不适用的数据为 `—`，失败或缺失阶段为“未完成”；无质量分数或等级。
+- 点击“导出 Markdown”，核对测试条件、阶段数据、全部逐秒采样和运行日志。
 
-9. **During a suite run:** both the server 运行日志 and the client 运行日志 scroll
-   with per-second lines like `TCP 上行 3s: 137.0 Mbps` (server lines are
-   prefixed with the client name).
-10. **While running:** the suite button (server) and the client 当前套件 bar show
-    blue/pulsing; on completion they turn green (优秀/合格), amber (风险), or red
-    (不合格) per the report rating.
+详细定义见 [测量口径](network-metrics.md)。
 
-## Export report
+## 多客户端与排队
 
-11. **Server, after a run:** click 导出 Markdown under the report. A save dialog
-    opens; choose a path. The `.md` file contains the rating, conclusion, test
-    info, client table, the per-phase metrics table, and a 运行日志 section with
-    this run's log lines.
+1. 连接至少两台客户端，确认它们同时保持连接；电脑名称可以相同，随机会话 ID 应不同。
+2. 服务端取消勾选一台并启动套件，确认仅选中的客户端执行。
+3. 确认客户端测试期间和完成后保留原勾选状态，下一轮可直接启动。
+4. 两个客户端同时点击“测试到服务器”，确认请求排队且测速不重叠。
+5. 重复点击不应重复入队，断开的排队客户端应自动移除。
+6. 服务端套件运行期间，其他客户端的手动请求应等待当前套件完成。
 
-## Selecting clients (multiple connected)
+客户端请求的每阶段时长为 5 秒，UDP 目标速率为 10 Mbps。连接旧版服务端时，客户端提示升级服务端，不绕过排队直接抢占 iperf3。
 
-12. **Server, with 2 clients connected:** each appears in 已连接客户端 with a
-    checkbox (default checked). Uncheck one, then click a suite — only the checked
-    client(s) run. With nothing checked, the suite buttons are disabled.
+## 权限与排障
 
-## Pass criteria
-
-- Discovery OR manual-IP connect works in at least one direction.
-- Both UIs reflect the connection.
-- A manual iperf run produces non-empty throughput and a loss/jitter value.
-
-## Troubleshooting
-
-- No discovery: UDP broadcast may be blocked — use manual IP.
-- Connect fails: check the firewall prompt was allowed and both machines are on
-  the same subnet.
-- iperf result empty / error: confirm `iperf3 -s` is running on the server and
-  the bundled binary exists for the client's platform.
-
-
-## 自动发现与权限（0.1.1）
-
-- 服务端按每张局域网网卡的 IPv4/掩码计算子网广播地址，并绑定对应源地址发送通告；不再只向 255.255.255.255 发送。VPN 隧道与 198.18/15 测试网段不参与自动发现，仍可手动 IP 连接。
-- 客户端同时接收 UDP 48101 通告，并向 UDP 48102 发送查询；服务端单播回复查询的源端口。每张网卡独立处理，网络切换后自动刷新。
-- macOS：首次使用允许本地网络访问；拒绝过时，到系统设置 → 隐私与安全性 → 本地网络，启用 PC Network Quality Tool，然后完整退出并重新打开。临时签名无法提供 Apple 正式签名的稳定身份保证；升级后可能需要重新授权。
-- Windows：将可信局域网设为专用网络，并允许程序的入站 TCP 48200、UDP 48101/48102；iperf3 需要 TCP/UDP 5201。不要通过关闭防火墙排障。
-- 若广播受路由器隔离或策略限制，客户端手动输入服务端物理网卡的 IP；不要默认使用 VPN 的 198.18.* 地址。
-- EHOSTUNREACH 也可能由 macOS 本地网络权限拒绝导致，不应直接断定两台电脑不在同一网段。
-
-
-## 多客户端（0.1.2）
-
-支持多台客户端同时保持控制连接，使用随机会话 ID，电脑名称可以重复。所有测速由服务端统一串行调度，避免争用 iperf3 和带宽。客户端点击“测试到服务器”后显示“排队中”，轮到时自动执行。重复点击不重复入队，断开的排队客户端自动移除。服务端仍保留测试中的客户端勾选状态，下一轮无需重新选择。
-
-客户端请求排队测速需要服务端同时升级至 0.1.2；连接旧服务端仍可由服务端发起套件，客户端不会绕过队列直接抢占测速进程。客户端请求测试每个阶段 5 秒，UDP 目标速率 10 Mbps。
+- macOS：允许本地网络访问；拒绝过时，打开“系统设置 → 隐私与安全性 → 本地网络”，启用程序，完整退出后重新打开。临时签名升级后可能需要重新授权。
+- Windows：将可信局域网设为专用网络，允许应用入站 TCP 48200、UDP 48101/48102；iperf3 需要 TCP/UDP 5201。不要通过关闭防火墙排障。
+- VPN／代理需允许局域网通信。不要默认使用 198.18.* 地址；169.254.* 仅在对应直连链路适用时使用。
+- 自动发现失败不能直接证明 TCP 不通，先用服务器的正确 IP 手动连接。`EHOSTUNREACH` 也可能与 macOS 本地网络授权有关。
+- iperf 报错时核对服务端日志、5201 端口占用、两端 iperf3 文件及依赖。

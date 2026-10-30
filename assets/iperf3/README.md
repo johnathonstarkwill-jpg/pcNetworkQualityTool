@@ -1,44 +1,19 @@
-# iperf3 binaries
+# iperf3 runtime
 
-These are downloaded by `npm run fetch:iperf3` into platform folders:
+Run `npm run fetch:iperf3` on the target build host before packaging. The script prepares pinned **iperf3 3.21** under `assets/iperf3/<platform>-<arch>/`. Generated binaries are ignored by Git and bundled into the app as extra resources.
 
-- `win32-x64/iperf3.exe`
-- `darwin-arm64/iperf3`
-- `darwin-x64/iperf3` (optional, for Intel Macs)
+- **macOS**: download the ESnet 3.21 release source, build static libiperf without OpenSSL, then ad-hoc sign the executable. Requires Xcode command line tools, `make`, compiler and `codesign`.
+- **Windows x64**: download the ar51an 3.21 release ZIP, extract the executable and all bundled DLLs using Windows `tar`. Keep the DLLs beside `iperf3.exe`.
 
-The application resolves the binary by platform and architecture at runtime
-(`resolveIperfBinary` in `src/main/iperfRunner.ts`). In a packaged app they are
-bundled as extraResources under `<resources>/iperf3/`.
+`node scripts/check-iperf3.mjs` verifies version >= 3.21 and `--json-stream`. On macOS it also rejects dependencies outside system libraries. Both packaging commands run this preflight; missing or incompatible binaries stop packaging.
 
-Run `npm run fetch:iperf3` once on each build machine before `npm run dist`.
+The runtime directory is selected by platform and architecture, so validate Windows binaries on Windows rather than on a Mac build host. Current packaging targets are Windows x64 and macOS Apple Silicon.
 
-## Reproducible preparation and packaging checks
+## macOS signing
 
-`npm run fetch:iperf3` prepares version 3.21 for the current build host:
+The fetch step signs the iperf3 executable for local use. That is separate from signing the finished Electron app. When packaging without an Apple signing identity, apply an ad-hoc signature to the completed `.app` before creating its DMG, then verify with `codesign --verify --deep --strict`. A local ad-hoc signature is not Apple notarization.
 
-- macOS: downloads the ESnet release source and builds static libiperf without OpenSSL, then ad-hoc signs the executable. Requires Xcode command line tools (`make`, compiler, `codesign`).
-- Windows x64: downloads the ar51an 3.21 release ZIP and installs the executable together with all bundled DLLs. Requires the Windows `tar` command.
+## Sources
 
-The script verifies the executable version and `--json-stream` support. On macOS it also rejects dependencies outside system libraries. `npm run package` and `npm run dist` run the same preflight and stop if binaries are missing, incompatible, or nonportable. Run the fetch step on the target build platform; cross-platform binaries cannot be runtime-verified on another operating system.
-
-## macOS code signing (Apple Silicon)
-
-On arm64 macOS, an unsigned or invalidly-signed binary is killed on launch with
-`Killed: 9` (SIGKILL → exit 137), so the iperf phases fail with
-`iperf3 exited with code null`. A locally-built or freshly-downloaded `iperf3`
-must carry a valid signature. For development, ad-hoc sign it:
-
-```bash
-codesign --force -s - assets/iperf3/darwin-arm64/iperf3
-```
-
-When the app is packaged, electron-builder signs the `.app` (and its bundled
-resources) during the macOS build, so a properly-signed binary is shipped.
-Verify a binary is runnable with `codesign -v <path>` and a quick
-`<path> -c 127.0.0.1 -t 1` against a local `iperf3 -s`.
-
-## Version requirement
-
-The app uses `iperf3 --json-stream` for per-second live progress, which requires
-**iperf3 ≥ 3.17**. Older builds (e.g. 3.1.x) do not support `--json-stream` and
-will fail every phase. Use a 3.17+ binary on every platform.
+- [ESnet iperf3 releases](https://github.com/esnet/iperf/releases)
+- [Windows binary releases](https://github.com/ar51an/iperf3-win-builds/releases)

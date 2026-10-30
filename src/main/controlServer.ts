@@ -12,7 +12,6 @@ import { buildReportSummary } from "./reportGenerator.js";
 import type {
   ClientTestResult,
   ConnectedClient,
-  ControlMessage,
   PhaseMetrics,
   ThroughputSample,
   LiveProgress,
@@ -376,8 +375,4 @@ export class ControlServer extends EventEmitter {
     this.emit("state", this.getState());
   }
 
-  broadcast(message: ControlMessage): void {
-    const line = encode(message);
-    for (const socket of this.sockets.values()) socket.write(line);
-  }
 }

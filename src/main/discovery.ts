@@ -1,6 +1,5 @@
 import dgram from "node:dgram";
 import { EventEmitter } from "node:events";
-import os from "node:os";
 import { getDiscoveryInterfaces, type DiscoveryInterface } from "./netInfo.js";
 import type { DiscoveredServer } from "../shared/types.js";
 
@@ -138,17 +137,6 @@ export class DiscoveryScanner extends EventEmitter {
     if (this.timer) clearInterval(this.timer);
     this.transport.stop(); this.socket.close();
   }
-}
-
-export function getLikelyLocalAddresses(): string[] {
-  return Object.values(os.networkInterfaces())
-    .flat()
-    .filter(isExternalIpv4Address)
-    .map((item) => item.address);
-}
-
-function isExternalIpv4Address(item: os.NetworkInterfaceInfo | undefined): item is os.NetworkInterfaceInfo {
-  return item !== undefined && item.family === "IPv4" && !item.internal;
 }
 
 function isValidDiscoveredServer(value: DiscoveredServer): boolean {
