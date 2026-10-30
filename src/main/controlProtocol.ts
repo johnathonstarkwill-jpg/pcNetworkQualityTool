@@ -59,7 +59,10 @@ function validMessage(v: unknown): v is ControlMessage {
   if (!object(v)) return false;
   switch (v.type) {
     case "register-client": return object(v.client) && text(v.client.id) && text(v.client.name) && text(v.client.address);
-    case "client-registered": return text(v.clientId);
+    case "client-registered": return text(v.clientId) && (v.supportsQueuedTests === undefined || typeof v.supportsQueuedTests === "boolean");
+    case "request-test":
+    case "test-queued": return text(v.clientId);
+    case "test-rejected": return text(v.clientId) && text(v.message);
     case "start-test": return text(v.runId) && validPlan(v.plan) && typeof v.serverAddress === "string" && net.isIP(v.serverAddress.replace(/^::ffff:/, "")) === 4;
     case "phase-progress": return text(v.runId) && text(v.clientId) && text(v.phaseId) && isValidInterval(v.interval);
     case "phase-result": return text(v.runId) && text(v.clientId) && isValidMetrics(v.metrics);

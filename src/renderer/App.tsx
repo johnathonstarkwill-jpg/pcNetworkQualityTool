@@ -63,7 +63,7 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
   // (kept unchecked unless it was still selected), not auto-reselected.
   const seenRef = useRef<Set<string>>(new Set());
 
-  const connectedIds = state?.clients.filter((c) => c.status === "connected").map((c) => c.id) ?? [];
+  const connectedIds = state?.clients.filter((c) => c.status !== "disconnected").map((c) => c.id) ?? [];
   const connectedKey = [...connectedIds].sort().join(",");
 
   useEffect(() => {
@@ -176,6 +176,7 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
         </div>
         <div className="panel">
           <h2>测试套件</h2>
+          <p className="empty">支持多客户端同时连接；测速逐台排队，避免相互抢占带宽。</p>
           {testing ? <p className="empty">测试进行中…</p> : null}
           <div className="suite-list">
             {suites.map((suite) => {
@@ -225,7 +226,7 @@ function ClientScreen({ onBack }: { onBack: () => void }) {
     return window.networkTool.onClientState(setState);
   }, []);
 
-  const connected = state?.status === "connected" || state?.status === "testing";
+  const connected = state?.status === "connected" || state?.status === "queued" || state?.status === "testing";
 
   return (
     <main className="workspace">
@@ -284,8 +285,8 @@ function ClientScreen({ onBack }: { onBack: () => void }) {
 
         {connected ? (
           <div className="test-block">
-            <button type="button" onClick={() => void window.networkTool.runManualTest()} disabled={state?.status === "testing"}>
-              {state?.status === "testing" ? "测试中…" : "测试到服务器"}
+            <button type="button" onClick={() => void window.networkTool.runManualTest()} disabled={state?.status === "testing" || state?.status === "queued"}>
+              {state?.status === "queued" ? "排队中…" : state?.status === "testing" ? "测试中…" : "测试到服务器"}
             </button>
             {state?.lastResult ? (
               <table className="result-table">

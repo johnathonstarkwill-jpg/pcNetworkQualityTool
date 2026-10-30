@@ -136,10 +136,13 @@ export interface TestReport {
 
 export type ControlMessage =
   | { type: "register-client"; client: ConnectedClient }
-  | { type: "client-registered"; clientId: string }
+  | { type: "client-registered"; clientId: string; supportsQueuedTests?: boolean }
   | { type: "start-test"; runId: string; plan: TestPlan; serverAddress: string }
   | { type: "phase-progress"; runId: string; clientId: string; phaseId: string; interval: ThroughputSample }
   | { type: "phase-result"; runId: string; clientId: string; metrics: PhaseMetrics }
+  | { type: "request-test"; clientId: string }
+  | { type: "test-queued"; clientId: string }
+  | { type: "test-rejected"; clientId: string; message: string }
   | { type: "test-busy"; runId: string; clientId: string }
   | { type: "test-complete"; runId: string; clientId: string }
   | { type: "log"; clientId: string; line: string }
@@ -165,7 +168,7 @@ export interface ClientSessionState {
   liveProgress?: LiveProgress;
   discoveredServers: DiscoveredServer[];
   connectedServer?: DiscoveredServer;
-  status: "searching" | "connecting" | "connected" | "testing" | "error";
+  status: "searching" | "connecting" | "connected" | "queued" | "testing" | "error";
   statusText: string;
   lastResult?: PhaseMetrics[];
   log: string[];

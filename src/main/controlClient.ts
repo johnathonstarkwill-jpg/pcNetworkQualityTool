@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import net from "node:net";
 import os from "node:os";
+import { randomUUID } from "node:crypto";
 import { runWithLoadedLatency } from "./loadedLatency.js";
 import { finalizePhase } from "../shared/measurements.js";
 import { runNetworkProbe } from "./networkProbe.js";
@@ -57,6 +58,7 @@ export class ControlClient extends EventEmitter {
   private intentionalClose = false;
   private runAbort: AbortController | undefined;
   private runningId: string | undefined;
+  private supportsQueuedTests = false;
   private readonly probeExec: typeof runNetworkProbe;
   private readonly iperfExec: IperfExecutor;
   private readonly identity: ConnectedClient;
@@ -66,7 +68,7 @@ export class ControlClient extends EventEmitter {
     this.iperfExec = options.iperfExec ?? runIperf;
     this.probeExec = options.probeExec ?? runNetworkProbe;
     this.identity = {
-      id: options.id ?? `client-${os.hostname()}-${process.pid}`,
+      id: options.id ?? `client-${randomUUID()}`,
       name: options.name ?? os.hostname(),
       address: listLocalIpv4Addresses()[0] ?? "127.0.0.1",
       status: "connected"
@@ -143,8 +145,16 @@ export class ControlClient extends EventEmitter {
       for (const message of decode(chunk)) {
         if (message.type === "client-registered" && message.clientId === this.identity.id) {
           socket.setTimeout(0);
+          this.supportsQueuedTests = message.supportsQueuedTests === true;
           this.status = "connected";
           this.statusText = "已连接，等待服务器开始测试";
+          this.emit("state", this.getState());
+        } else if (message.type === "test-queued" && message.clientId === this.identity.id && this.status === "queued") {
+          this.statusText = "请求已排队，等待服务器派发";
+          this.emit("state", this.getState());
+        } else if (message.type === "test-rejected" && message.clientId === this.identity.id && this.status === "queued") {
+          this.status = "connected";
+          this.statusText = message.message;
           this.emit("state", this.getState());
         } else if (message.type === "start-test") {
           this.currentSuite = { label: message.plan.label, status: "running" };
@@ -155,6 +165,8 @@ export class ControlClient extends EventEmitter {
           this.status = "connected";
           this.statusText = "测试已取消";
           this.pushLog(this.statusText);
+        } else if (message.type === "error") {
+          this.fail(message.message);
         } else if (message.type === "suite-complete") {
           this.currentSuite = { label: this.currentSuite?.label ?? "", status: message.status };
           this.pushLog(message.status === "completed" ? "套件数据采集完成" : "套件存在未完成阶段");
@@ -174,7 +186,7 @@ export class ControlClient extends EventEmitter {
       if (settled || this.intentionalClose || this.socket !== socket) return;
       settled = true;
       this.runAbort?.abort();
-      if (this.status === "connected" || this.status === "testing" || this.status === "connecting") {
+      if (this.status === "connected" || this.status === "testing" || this.status === "queued" || this.status === "connecting") {
         this.status = "error";
         this.statusText = "与服务器的连接已断开";
         this.emit("state", this.getState());
@@ -182,42 +194,19 @@ export class ControlClient extends EventEmitter {
     });
   }
 
-  // Manual cross-machine test: one short TCP-upload + one UDP-quality run.
+  // All clients share the server's iperf3 instance, so manual tests must use
+  // the same scheduler as server-started suites.
   async runManualTest(): Promise<void> {
-    if (this.status === "testing") return;
-    const host = this.connectedServer?.address;
-    if (!host || this.status !== "connected") {
-      this.fail("尚未连接服务器，无法测试");
+    if (this.status !== "connected" || !this.socket) return;
+    if (!this.supportsQueuedTests) {
+      this.statusText = "服务器版本不支持排队测速，请更新服务端；也可从服务器发起测试。";
+      this.emit("state", this.getState());
       return;
     }
-
-    const abort = new AbortController();
-    this.runAbort = abort;
-    this.status = "testing";
-    this.statusText = "正在测试网络质量";
-    this.pushLog("开始手动测试");
-
-    this.lastResult = [];
-    for (const kind of ["connectivity", "latency", "tcp-upload", "tcp-download", "udp-quality", "udp-download"] as const) {
-      if (abort.signal.aborted) return;
-      const phase = { id: kind, kind, label: PHASE_LABELS[kind], durationSeconds: 5, ...((kind === "udp-quality" || kind === "udp-download") ? { targetBitrateMbps: 10 } : {}) };
-      let metrics: PhaseMetrics;
-      this.liveProgress = undefined;
-      this.statusText = `正在测试 ${phase.label}`;
-      this.pushLog(this.statusText);
-      try {
-        metrics = kind === "connectivity" || kind === "latency"
-          ? await this.probeExec({ host, phaseKind: kind, durationSeconds: 5, port: this.connectedServer?.port, signal: abort.signal })
-          : await runWithLoadedLatency({ host, phaseKind: kind, durationSeconds: 5, targetBitrateMbps: phase.targetBitrateMbps, signal: abort.signal }, this.lastResult?.find(p => p.phaseId === "latency"), this.iperfExec, this.probeExec, u => this.recordProgress(phase.id, u));
-      } catch (error) { metrics = { phaseId: kind, errors: [error instanceof Error ? error.message : "采集失败"] }; }
-      if (abort.signal.aborted) return;
-      this.lastResult = [...(this.lastResult ?? []), finalizePhase(phase, metrics)];
-      this.emit("state", this.getState());
-    }
-    this.status = "connected";
-    this.liveProgress = undefined;
-    this.statusText = "手动测试数据采集结束";
-    this.pushLog(this.statusText);
+    this.status = "queued";
+    this.statusText = "正在请求服务器安排测试";
+    this.socket.write(encode({ type: "request-test", clientId: this.identity.id }));
+    this.emit("state", this.getState());
   }
 
   // Server-orchestrated run: execute every planned phase in order,
@@ -295,6 +284,7 @@ export class ControlClient extends EventEmitter {
     this.runAbort?.abort();
     this.runAbort = undefined;
     this.runningId = undefined;
+    this.supportsQueuedTests = false;
     this.status = "searching";
     this.statusText = "正在搜索服务器";
     this.connectedServer = undefined;

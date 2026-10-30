@@ -3,6 +3,7 @@ import net from "node:net";
 import os from "node:os";
 import { summarizeStability } from "../shared/stability.js";
 import { finalizePhase } from "../shared/measurements.js";
+import { buildTestPlan } from "./testPlans.js";
 import { randomUUID } from "node:crypto";
 import { CONTROL_PORT, createDecoder, encode } from "./controlProtocol.js";
 import { appendLog, stamp } from "./logBuffer.js";
@@ -33,6 +34,7 @@ export class ControlServer extends EventEmitter {
   private localAddresses: string[] = [];
 
   private queue: string[] = [];
+  private manualQueue: string[] = [];
   private readonly results = new Map<string, PhaseMetrics[]>();
   private runTimer: NodeJS.Timeout | undefined;
   private logLines: string[] = [];
@@ -98,6 +100,7 @@ export class ControlServer extends EventEmitter {
       for (const [id, client] of this.clients) this.clients.set(id, { ...client, status: "disconnected" });
       this.listening = false;
       this.queue = [];
+      this.manualQueue = [];
       this.testingClientId = undefined;
       this.clearRunTimer();
 
@@ -122,13 +125,18 @@ export class ControlServer extends EventEmitter {
     socket.on("data", (chunk: string) => {
       for (const message of decode(chunk)) {
         if (message.type === "register-client") {
-          if (clientId || this.sockets.has(message.client.id)) { socket.destroy(); return; }
+          if (clientId || this.sockets.has(message.client.id)) {
+            socket.end(encode({ type: "error", message: "客户端标识重复，请更新客户端并重新启动。" }));
+            return;
+          }
           clientId = message.client.id;
           this.sockets.set(clientId, socket);
           this.registerClient({ ...message.client, address: socket.remoteAddress?.replace(/^::ffff:/, "") ?? message.client.address });
-          socket.write(encode({ type: "client-registered", clientId }));
+          socket.write(encode({ type: "client-registered", clientId, supportsQueuedTests: true }));
         } else if (!clientId || !("clientId" in message) || message.clientId !== clientId) {
           continue;
+        } else if (message.type === "request-test") {
+          this.enqueueManualTest(clientId);
         } else if (message.type === "phase-progress" && message.runId === this.runId) {
           this.recordProgress(message.clientId, message.phaseId, message.interval);
         } else if (message.type === "phase-result" && message.runId === this.runId) {
@@ -172,6 +180,7 @@ export class ControlServer extends EventEmitter {
   }
 
   private handleClientGone(clientId: string): void {
+    this.manualQueue = this.manualQueue.filter(id => id !== clientId);
     this.markClientDisconnected(clientId);
     this.pushLog(`客户端断开：${this.clients.get(clientId)?.name ?? clientId}`);
     if (this.testingClientId === clientId) {
@@ -180,6 +189,32 @@ export class ControlServer extends EventEmitter {
       if (this.activePlan) this.dispatchNext();
     } else {
       this.queue = this.queue.filter((id) => id !== clientId);
+    }
+  }
+
+  private enqueueManualTest(clientId: string): void {
+    const socket = this.sockets.get(clientId);
+    if (!socket) return;
+    if (this.manualQueue.includes(clientId) || (this.activePlan && this.selectedIds.includes(clientId))) {
+      socket.write(encode({ type: "test-rejected", clientId, message: "该客户端已在服务器测试队列中，请等待本轮测试。" }));
+      return;
+    }
+    this.manualQueue.push(clientId);
+    socket.write(encode({ type: "test-queued", clientId }));
+    this.pushLog(`客户端请求测速，已排队：${this.clients.get(clientId)?.name ?? clientId}`);
+    this.dispatchManualTest();
+  }
+
+  private dispatchManualTest(): void {
+    if (this.activePlan) return;
+    while (this.manualQueue.length) {
+      const clientId = this.manualQueue.shift()!;
+      if (!this.sockets.has(clientId)) continue;
+      const plan = buildTestPlan("quick-check", "separate");
+      plan.label = "客户端请求测试";
+      plan.phases = plan.phases.map(p => ({ ...p, durationSeconds: 5, ...(p.kind.startsWith("udp") ? { targetBitrateMbps: 10 } : {}) }));
+      this.startPlan(plan, [clientId]);
+      return;
     }
   }
 
@@ -306,6 +341,7 @@ export class ControlServer extends EventEmitter {
     this.activePlan = undefined;
     this.testingClientId = undefined;
     this.emit("state", this.getState());
+    this.dispatchManualTest();
   }
 
   private startRunTimer(clientId: string): void {

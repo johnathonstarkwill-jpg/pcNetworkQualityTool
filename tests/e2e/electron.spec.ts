@@ -74,6 +74,7 @@ test("electron app exposes the IPC bridge and renders suites", async () => {
     await page.getByRole("button", { name: /快速检测/ }).click();
     await expect(page.getByRole("heading", { name: "实时吞吐量趋势", exact: true })).toBeVisible();
     await expect(page.locator(".live-trend svg")).toHaveCount(1);
+    await expect(page.locator(".client-list input[type=checkbox]")).toBeChecked();
     releaseLoad();
     await expect(page.getByRole("heading", { name: "网络质量测试数据" })).toBeVisible();
     await expect(page.getByText("已完成 6 / 6 个阶段；未完成 0 个阶段。", { exact: true })).toBeVisible();
@@ -85,6 +86,14 @@ test("electron app exposes the IPC bridge and renders suites", async () => {
     await expect(page.getByRole("columnheader", { name: "平均 RTT 增量 ms", exact: true })).toBeVisible();
     expect(await page.locator(".report-preview").innerText()).not.toMatch(/优秀|不合格|风险|可用于视频/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect(page.locator(".client-list input[type=checkbox]")).toBeChecked();
+    const previousReport = await page.evaluate(async () => (await window.networkTool.getServerState()).latestReport?.id);
+    await page.getByRole("button", { name: /快速检测/ }).click();
+    await expect.poll(() => page.evaluate(async previousId => {
+      const id = (await window.networkTool.getServerState()).latestReport?.id;
+      return Boolean(id && id !== previousId);
+    }, previousReport)).toBe(true);
+    await expect(page.locator(".client-list input[type=checkbox]")).toBeChecked();
     await page.screenshot({ path: "test-results/network-data-report.png", fullPage: true });
   } finally {
     socket?.destroy();

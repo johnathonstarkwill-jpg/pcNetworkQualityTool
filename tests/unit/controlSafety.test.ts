@@ -124,3 +124,14 @@ it("streams long runs without oversized frames and preserves samples when interr
   expect(phase.stability).toMatchObject({ zeroEvents: 1, zeroSeconds: 1, missingSeconds: 0, sampleCount: 3600 });
   expect(phase.errors.length).toBeGreaterThan(0); // The final throughput result never arrived.
 });
+
+it("gives default clients independent IDs even with the same name and process", async () => {
+  server = new ControlServer(); const port = await server.listen(0);
+  const clients = [new ControlClient({ name: "cloned-host" }), new ControlClient({ name: "cloned-host" })];
+  try {
+    clients.forEach(c => c.connectToAddress("127.0.0.1", port));
+    await expect.poll(() => clients.map(c => c.getState().status)).toEqual(["connected", "connected"]);
+    const ids = server.getState().clients.map(c => c.id);
+    expect(new Set(ids).size).toBe(2);
+  } finally { clients.forEach(c => c.disconnect()); }
+});

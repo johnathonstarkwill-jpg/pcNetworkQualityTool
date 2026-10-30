@@ -38,7 +38,7 @@ describe("ControlServer over TCP", () => {
     expect(state.clients[0]).toMatchObject({ id: "c1", name: "客户端 A", status: "connected" });
 
     const ackLine = await new Promise<string>((resolve) => socket.once("data", (d) => resolve(d.toString())));
-    expect(JSON.parse(ackLine.trim())).toEqual({ type: "client-registered", clientId: "c1" });
+    expect(JSON.parse(ackLine.trim())).toEqual({ type: "client-registered", clientId: "c1", supportsQueuedTests: true });
 
     socket.destroy();
   });
