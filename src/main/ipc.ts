@@ -24,6 +24,7 @@ export function registerIpcHandlers(getWebContents: () => WebContents | undefine
     getWebContents()?.send(channel, payload);
   };
 
+  iperfServer.on("network-error", (error: Error) => server.notifyNetworkError(`iperf3 服务失败：${error.message}`));
   server.on("state", (state) => push("server:state", state));
   client.on("state", (state) => push("client:state", state));
 
@@ -120,7 +121,7 @@ export function registerIpcHandlers(getWebContents: () => WebContents | undefine
 function startServer(): void {
   const localAddress = listLocalIpv4Addresses()[0] ?? "127.0.0.1";
   server.listen().catch((error: unknown) => {
-    console.error("control server failed to listen:", error instanceof Error ? error.message : error);
+    server.notifyNetworkError(`控制服务启动失败：${error instanceof Error ? error.message : error}`);
   });
   iperfServer.start();
 
@@ -131,6 +132,7 @@ function startServer(): void {
     port: CONTROL_PORT
   };
   broadcaster = new DiscoveryBroadcaster(advertised);
+  broadcaster.on("network-error", (error: Error) => server.notifyNetworkError(`自动发现广播失败：${error.message}`));
   broadcaster.start();
 }
 
@@ -138,10 +140,11 @@ function startClient(): void {
   client.clearDiscoveredServers();
   scanner = new DiscoveryScanner();
   scanner.on("server", (discovered: DiscoveredServer) => client.upsertDiscoveredServer(discovered));
+  scanner.on("network-error", (error: Error) => client.notifyDiscoveryError(error.message));
   scanner.start();
 }
 
-async function stopNetworking(): Promise<void> {
+export async function stopNetworking(): Promise<void> {
   broadcaster?.stop();
   broadcaster = undefined;
   scanner?.stop();

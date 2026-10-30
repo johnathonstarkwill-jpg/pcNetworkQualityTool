@@ -30,3 +30,16 @@ describe("discovery", () => {
     expect(parseDiscoveryMessage(malformed)).toBeNull();
   });
 });
+
+it("reports a discovery port conflict without an unhandled socket error", async () => {
+  const { DiscoveryScanner, DISCOVERY_PORT } = await import("../../src/main/discovery");
+  const dgram = await import("node:dgram");
+  const blocker = dgram.createSocket("udp4");
+  await new Promise<void>((resolve, reject) => { blocker.once("error", reject); blocker.bind(DISCOVERY_PORT, resolve); });
+  const scanner = new DiscoveryScanner();
+  try {
+    const error = new Promise<Error>(resolve => scanner.once("network-error", resolve));
+    scanner.start();
+    expect((await error).message).toContain("EADDRINUSE");
+  } finally { scanner.stop(); blocker.close(); }
+});

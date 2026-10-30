@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { AppRole, ClientSessionState, ReportSummary, ServerSessionState, TestSuiteId } from "../shared/types";
+import { throughputSvg } from "../shared/throughputChart";
+import { PHASE_LABELS } from "../shared/measurements";
+import type { AppRole, ClientSessionState, SuiteStatus, ServerSessionState, TestSuiteId, LiveProgress } from "../shared/types";
 
 interface SuiteView {
   id: TestSuiteId;
@@ -96,8 +98,11 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
   // When a real report becomes available, fetch its rendered HTML once.
   const reportId = state?.latestReport?.id;
   useEffect(() => {
+    setReportHtml("");
     if (!window.networkTool || !reportId) return;
-    void window.networkTool.getLatestReportHtml().then(setReportHtml);
+    let cancelled = false;
+    void window.networkTool.getLatestReportHtml().then(html => { if (!cancelled) setReportHtml(html); });
+    return () => { cancelled = true; };
   }, [reportId]);
 
   const testing = Boolean(state?.activePlan);
@@ -174,7 +179,7 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
           <div className="suite-list">
             {suites.map((suite) => {
               const colorClass =
-                state?.activePlan?.suiteId === suite.id ? "suite-running" : ratingClass(state?.suiteRatings[suite.id]);
+                state?.activePlan?.suiteId === suite.id ? "suite-running" : statusClass(state?.suiteStatuses[suite.id]);
               return (
                 <button
                   key={suite.id}
@@ -197,6 +202,7 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
               {exportNote ? <span className="export-note">{exportNote}</span> : null}
             </div>
           ) : null}
+          <LiveTrend progress={state?.liveProgress} />
           {reportHtml ? (
             <div className="report-preview" dangerouslySetInnerHTML={{ __html: reportHtml }} />
           ) : null}
@@ -234,11 +240,11 @@ function ClientScreen({ onBack }: { onBack: () => void }) {
       {state?.currentSuite ? (
         <div
           className={`suite-status ${
-            state.currentSuite.status === "running" ? "suite-running" : ratingClass(state.currentSuite.status)
+            state.currentSuite.status === "running" ? "suite-running" : statusClass(state.currentSuite.status)
           }`.trim()}
         >
           当前套件：{state.currentSuite.label} ·{" "}
-          {state.currentSuite.status === "running" ? "进行中" : state.currentSuite.status}
+          {state.currentSuite.status === "running" ? "进行中" : state.currentSuite.status === "completed" ? "数据采集完成" : "存在未完成阶段"}
         </div>
       ) : null}
       <section className="panel">
@@ -286,16 +292,40 @@ function ClientScreen({ onBack }: { onBack: () => void }) {
                     <th>阶段</th>
                     <th>吞吐量 Mbps</th>
                     <th>UDP 丢包 %</th>
-                    <th>抖动 ms</th>
+                    <th>UDP 抖动 ms</th>
+                    <th>RTT min/avg/max ms</th>
+                    <th>RTT p95/p99 ms</th>
+                    <th>已发/已收/丢失包数</th>
+                    <th>ICMP 丢包 %</th>
+                    <th>TCP 重传</th>
+                    <th>负载 RTT avg / p95 ms</th>
+                    <th>平均 RTT 增量 ms</th>
+                    <th>吞吐 min / avg / max Mbps</th>
+                    <th>标准差 Mbps / 变异系数 %</th>
+                    <th>采样缺口 s</th>
+                    <th>零吞吐累计 / 最长 s</th>
+                    <th>说明</th>
                   </tr>
                 </thead>
                 <tbody>
                   {state.lastResult.map((phase) => (
                     <tr key={phase.phaseId}>
-                      <td>{phase.phaseId}</td>
+                      <td>{PHASE_LABELS[phase.phaseId] ?? phase.phaseId}</td>
                       <td>{format(phase.throughputMbps)}</td>
                       <td>{format(phase.udpLossPercent)}</td>
                       <td>{format(phase.jitterMs)}</td>
+                      <td>{phase.latencyMs ? [phase.latencyMs.min, phase.latencyMs.avg, phase.latencyMs.max].map(format).join(" / ") : "—"}</td>
+                      <td>{phase.latencyMs ? [phase.latencyMs.p95, phase.latencyMs.p99].map(format).join(" / ") : "—"}</td>
+                      <td>{[phase.packetsSent, phase.packetsReceived, phase.packetsLost].map(v => v ?? "—").join(" / ")}</td>
+                      <td>{format(phase.packetLossPercent)}</td>
+                      <td>{phase.retransmits ?? "—"}</td>
+                      <td>{phase.loadedLatency?.latencyMs ? [phase.loadedLatency.latencyMs.avg, phase.loadedLatency.latencyMs.p95].map(format).join(" / ") : "—"}</td>
+                      <td>{format(phase.loadedLatency?.deltaAvgMs)}</td>
+                      <td>{phase.stability ? [phase.stability.minMbps, phase.stability.avgMbps, phase.stability.maxMbps].map(format).join(" / ") : "—"}</td>
+                      <td>{phase.stability ? [phase.stability.stddevMbps, phase.stability.cvPercent].map(format).join(" / ") : "—"}</td>
+                      <td>{format(phase.stability?.missingSeconds)}</td>
+                      <td>{phase.stability ? [phase.stability.zeroSeconds, phase.stability.longestZeroSeconds].map(format).join(" / ") : "—"}</td>
+                      <td>{[...phase.errors, ...(phase.loadedLatency?.errors ?? []), ...(phase.loadedLatency?.notes ?? []), ...(phase.notes ?? [])].join("；")}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -303,6 +333,11 @@ function ClientScreen({ onBack }: { onBack: () => void }) {
             ) : null}
           </div>
         ) : null}
+        {state?.lastResult?.filter(p => p.intervals?.length).map(p => <figure key={p.phaseId}>
+          <figcaption>{PHASE_LABELS[p.phaseId]} · {p.throughputSeriesSide === "receiver" ? "接收端" : "发送端"} Mbps</figcaption>
+          <div dangerouslySetInnerHTML={{ __html: throughputSvg(p.intervals!) }} />
+        </figure>)}
+        <LiveTrend progress={state?.liveProgress} />
         <h2>运行日志</h2>
         <LogConsole lines={state?.log ?? []} />
       </section>
@@ -317,16 +352,11 @@ const CLIENT_STATUS_LABELS: Record<"connected" | "testing" | "disconnected", str
 };
 
 function format(value: number | undefined): string {
-  return value === undefined ? "-" : value.toFixed(2);
+  return value === undefined ? "-" : value.toFixed(3);
 }
 
-type Rating = ReportSummary["rating"];
-
-function ratingClass(rating: Rating | undefined): string {
-  if (rating === "优秀" || rating === "合格") return "suite-pass";
-  if (rating === "风险") return "suite-risk";
-  if (rating === "不合格") return "suite-fail";
-  return "";
+function statusClass(status: SuiteStatus | undefined): string {
+  return status === "completed" || status === "incomplete" ? "suite-completed" : "";
 }
 
 function LogConsole({ lines }: { lines: string[] }) {
@@ -339,4 +369,12 @@ function LogConsole({ lines }: { lines: string[] }) {
       {lines.length > 0 ? lines.join("\n") : "// 暂无日志"}
     </pre>
   );
+}
+
+function LiveTrend({ progress }: { progress?: LiveProgress }) {
+  if (!progress?.intervals.length) return null;
+  return <section className="live-trend"><h2>实时吞吐量趋势</h2>
+    <p>{PHASE_LABELS[progress.phaseId] ?? progress.phaseId} · 最近 120 个采样区间 · {progress.intervals[0].side === "receiver" ? "接收端" : "发送端"} Mbps</p>
+    <div dangerouslySetInnerHTML={{ __html: throughputSvg(progress.intervals) }} />
+  </section>;
 }

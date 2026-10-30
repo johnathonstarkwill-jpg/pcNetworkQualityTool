@@ -22,7 +22,8 @@ describe("testPlans", () => {
       "latency",
       "tcp-upload",
       "tcp-download",
-      "udp-quality"
+      "udp-quality",
+      "udp-download"
     ]);
     expect(plan.phases.every((phase) => phase.durationSeconds <= 20)).toBe(true);
   });

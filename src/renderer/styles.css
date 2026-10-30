@@ -95,11 +95,12 @@ button:hover {
 
 .grid {
   display: grid;
-  grid-template-columns: minmax(280px, 360px) 1fr;
+  grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
   gap: 20px;
 }
 
 .panel {
+  min-width: 0;
   padding: 24px;
 }
 
@@ -231,24 +232,6 @@ button:hover {
   animation: suitePulse 1.2s ease-in-out infinite;
 }
 
-.suite-pass {
-  background: #1b873f;
-  color: #fff;
-}
-
-.suite-risk {
-  background: #c79a00;
-  color: #fff;
-}
-
-.suite-fail {
-  background: #c0392b;
-  color: #fff;
-}
-
-.suite-button.suite-pass span,
-.suite-button.suite-risk span,
-.suite-button.suite-fail span,
 .suite-button.suite-running span {
   color: rgba(255, 255, 255, 0.85);
 }
@@ -256,18 +239,6 @@ button:hover {
 @keyframes suitePulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.72; }
-}
-
-.suite-button.suite-pass:hover {
-  background: #156e33;
-}
-
-.suite-button.suite-risk:hover {
-  background: #a07f00;
-}
-
-.suite-button.suite-fail:hover {
-  background: #9e2f23;
 }
 
 .suite-button.suite-running:hover {
@@ -302,3 +273,15 @@ button:hover {
 .client-row:has(input:disabled) {
   cursor: default;
 }
+
+.metrics-scroll, .test-block { overflow-x: auto; }
+.measurement-report table { border-collapse: collapse; min-width: 1600px; width: 100%; }
+.measurement-report th, .measurement-report td { border: 1px solid #d9e2e8; padding: 8px; text-align: left; }
+.measurement-report th { background: #eef3f6; }
+.measurement-report { overflow: hidden; }
+.suite-completed { border-color: #94a3b8; background: #f1f5f9; }
+
+.measurement-report figure, .live-trend { margin: 20px 0; }
+.measurement-report figcaption { margin: 8px 0; font-weight: 600; }
+.live-trend p { color: #52636f; }
+.live-trend svg { display: block; }

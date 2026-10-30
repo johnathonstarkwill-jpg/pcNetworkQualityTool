@@ -1,6 +1,9 @@
 import { EventEmitter } from "node:events";
 import net from "node:net";
 import os from "node:os";
+import { runWithLoadedLatency } from "./loadedLatency.js";
+import { finalizePhase } from "../shared/measurements.js";
+import { runNetworkProbe } from "./networkProbe.js";
 import { CONTROL_PORT, createDecoder, encode } from "./controlProtocol.js";
 import { runIperf, type IntervalUpdate } from "./iperfRunner.js";
 import { appendLog, stamp } from "./logBuffer.js";
@@ -10,6 +13,7 @@ import type {
   ConnectedClient,
   DiscoveredServer,
   PhaseMetrics,
+  LiveProgress,
   TestPhaseKind,
   TestPlan
 } from "../shared/types.js";
@@ -18,30 +22,26 @@ export type IperfExecutor = typeof runIperf;
 
 export interface ControlClientOptions {
   iperfExec?: IperfExecutor;
+  probeExec?: typeof runNetworkProbe;
   id?: string;
   name?: string;
 }
-
-const RUNNABLE_PHASES: ReadonlySet<TestPhaseKind> = new Set<TestPhaseKind>([
-  "tcp-upload",
-  "tcp-download",
-  "udp-quality"
-]);
 
 const PHASE_LABELS: Record<TestPhaseKind, string> = {
   connectivity: "连通性",
   latency: "延迟",
   "tcp-upload": "TCP 上行",
   "tcp-download": "TCP 下行",
-  "udp-quality": "UDP"
+  "udp-quality": "UDP 上行",
+  "udp-download": "UDP 下行"
 };
 
 function formatInterval(update: IntervalUpdate): string {
-  const base = `${PHASE_LABELS[update.phaseKind]} ${update.second}s: ${update.throughputMbps.toFixed(1)} Mbps`;
-  if (update.udpLossPercent !== undefined || update.jitterMs !== undefined) {
-    return `${base} 丢包 ${(update.udpLossPercent ?? 0).toFixed(1)}% 抖动 ${(update.jitterMs ?? 0).toFixed(2)}ms`;
-  }
-  return base;
+  const side = (update.phaseKind === "tcp-download" || update.phaseKind === "udp-download") ? "接收" : "发送";
+  const fields = [`${PHASE_LABELS[update.phaseKind]} ${update.second}s: 实时${side}速率 ${update.throughputMbps.toFixed(3)} Mbps`];
+  if (update.udpLossPercent !== undefined) fields.push(`丢包 ${update.udpLossPercent.toFixed(3)}%`);
+  if (update.jitterMs !== undefined) fields.push(`UDP 抖动 ${update.jitterMs.toFixed(3)} ms`);
+  return fields.join(" ");
 }
 
 export class ControlClient extends EventEmitter {
@@ -50,16 +50,21 @@ export class ControlClient extends EventEmitter {
   private status: ClientSessionState["status"] = "searching";
   private statusText = "正在搜索服务器";
   private lastResult: PhaseMetrics[] | undefined;
+  private liveProgress: LiveProgress | undefined;
   private log: string[] = [];
   private currentSuite: ClientSessionState["currentSuite"];
   private socket: net.Socket | undefined;
   private intentionalClose = false;
+  private runAbort: AbortController | undefined;
+  private runningId: string | undefined;
+  private readonly probeExec: typeof runNetworkProbe;
   private readonly iperfExec: IperfExecutor;
   private readonly identity: ConnectedClient;
 
   constructor(options: ControlClientOptions = {}) {
     super();
     this.iperfExec = options.iperfExec ?? runIperf;
+    this.probeExec = options.probeExec ?? runNetworkProbe;
     this.identity = {
       id: options.id ?? `client-${os.hostname()}-${process.pid}`,
       name: options.name ?? os.hostname(),
@@ -71,6 +76,7 @@ export class ControlClient extends EventEmitter {
   getState(): ClientSessionState {
     return {
       role: "client",
+      liveProgress: this.liveProgress,
       discoveredServers: [...this.discoveredServers.values()],
       connectedServer: this.connectedServer,
       status: this.status,
@@ -103,6 +109,11 @@ export class ControlClient extends EventEmitter {
 
   connectToAddress(address: string, port: number = CONTROL_PORT, server?: DiscoveredServer): void {
     this.disconnect();
+    address = address.trim();
+    if (net.isIP(address) !== 4 || !Number.isInteger(port) || port < 1 || port > 65535) {
+      this.fail("请输入有效的服务器 IPv4 地址");
+      return;
+    }
     this.intentionalClose = false;
     this.status = "connecting";
     this.statusText = "正在连接服务器";
@@ -119,39 +130,51 @@ export class ControlClient extends EventEmitter {
     const socket = net.connect(port, address);
     this.socket = socket;
     socket.setEncoding("utf8");
+    socket.setTimeout(10_000, () => {
+      socket.destroy(new Error("连接或注册超时"));
+    });
 
     socket.on("connect", () => {
       socket.write(encode({ type: "register-client", client: this.identity }));
     });
 
     socket.on("data", (chunk: string) => {
+      if (this.socket !== socket) return;
       for (const message of decode(chunk)) {
-        if (message.type === "client-registered") {
+        if (message.type === "client-registered" && message.clientId === this.identity.id) {
+          socket.setTimeout(0);
           this.status = "connected";
           this.statusText = "已连接，等待服务器开始测试";
           this.emit("state", this.getState());
         } else if (message.type === "start-test") {
           this.currentSuite = { label: message.plan.label, status: "running" };
           this.pushLog(`收到测试计划：${message.plan.label}`);
-          void this.runPlan(message.plan, message.serverAddress);
+          void this.runPlan(message.plan, this.connectedServer!.address, message.runId);
+        } else if (message.type === "cancel-test" && message.runId === this.runningId) {
+          this.runAbort?.abort();
+          this.status = "connected";
+          this.statusText = "测试已取消";
+          this.pushLog(this.statusText);
         } else if (message.type === "suite-complete") {
-          this.currentSuite = { label: this.currentSuite?.label ?? "", status: message.rating };
-          this.pushLog(`套件完成，评级：${message.rating}`);
+          this.currentSuite = { label: this.currentSuite?.label ?? "", status: message.status };
+          this.pushLog(message.status === "completed" ? "套件数据采集完成" : "套件存在未完成阶段");
         }
       }
     });
 
     let settled = false;
     socket.on("error", (error: Error) => {
-      if (settled || this.intentionalClose) return;
+      if (settled || this.intentionalClose || this.socket !== socket) return;
       settled = true;
+      this.runAbort?.abort();
       console.error("control client socket error:", error.message);
       this.fail("连接失败，请检查服务器 IP 与防火墙设置");
     });
     socket.on("close", () => {
-      if (settled || this.intentionalClose) return;
+      if (settled || this.intentionalClose || this.socket !== socket) return;
       settled = true;
-      if (this.status === "connected" || this.status === "testing") {
+      this.runAbort?.abort();
+      if (this.status === "connected" || this.status === "testing" || this.status === "connecting") {
         this.status = "error";
         this.statusText = "与服务器的连接已断开";
         this.emit("state", this.getState());
@@ -163,57 +186,84 @@ export class ControlClient extends EventEmitter {
   async runManualTest(): Promise<void> {
     if (this.status === "testing") return;
     const host = this.connectedServer?.address;
-    if (!host) {
+    if (!host || this.status !== "connected") {
       this.fail("尚未连接服务器，无法测试");
       return;
     }
 
+    const abort = new AbortController();
+    this.runAbort = abort;
     this.status = "testing";
     this.statusText = "正在测试网络质量";
     this.pushLog("开始手动测试");
 
-    try {
-      const onInterval = (u: IntervalUpdate): void => this.pushLog(formatInterval(u));
-      const tcp = await this.iperfExec({ host, phaseKind: "tcp-upload", durationSeconds: 5 }, onInterval);
-      const udp = await this.iperfExec({ host, phaseKind: "udp-quality", durationSeconds: 5, targetBitrateMbps: 10 }, onInterval);
-      this.lastResult = [tcp, udp];
-      this.status = "connected";
-      this.statusText = "测试完成";
-      this.pushLog("手动测试完成");
-    } catch (error: unknown) {
-      this.status = "error";
-      this.statusText = error instanceof Error ? `测试失败：${error.message}` : "测试失败";
+    this.lastResult = [];
+    for (const kind of ["connectivity", "latency", "tcp-upload", "tcp-download", "udp-quality", "udp-download"] as const) {
+      if (abort.signal.aborted) return;
+      const phase = { id: kind, kind, label: PHASE_LABELS[kind], durationSeconds: 5, ...((kind === "udp-quality" || kind === "udp-download") ? { targetBitrateMbps: 10 } : {}) };
+      let metrics: PhaseMetrics;
+      this.liveProgress = undefined;
+      this.statusText = `正在测试 ${phase.label}`;
       this.pushLog(this.statusText);
+      try {
+        metrics = kind === "connectivity" || kind === "latency"
+          ? await this.probeExec({ host, phaseKind: kind, durationSeconds: 5, port: this.connectedServer?.port, signal: abort.signal })
+          : await runWithLoadedLatency({ host, phaseKind: kind, durationSeconds: 5, targetBitrateMbps: phase.targetBitrateMbps, signal: abort.signal }, this.lastResult?.find(p => p.phaseId === "latency"), this.iperfExec, this.probeExec, u => this.recordProgress(phase.id, u));
+      } catch (error) { metrics = { phaseId: kind, errors: [error instanceof Error ? error.message : "采集失败"] }; }
+      if (abort.signal.aborted) return;
+      this.lastResult = [...(this.lastResult ?? []), finalizePhase(phase, metrics)];
+      this.emit("state", this.getState());
     }
+    this.status = "connected";
+    this.liveProgress = undefined;
+    this.statusText = "手动测试数据采集结束";
+    this.pushLog(this.statusText);
   }
 
-  // Server-orchestrated run: execute the plan's runnable phases in order,
+  // Server-orchestrated run: execute every planned phase in order,
   // streaming a phase-result per phase and a final test-complete.
-  private async runPlan(plan: TestPlan, serverAddress: string): Promise<void> {
-    if (this.status === "testing") return;
+  private async runPlan(plan: TestPlan, serverAddress: string, runId: string): Promise<void> {
+    if (this.status === "testing") {
+      this.socket?.write(encode({ type: "test-busy", runId, clientId: this.identity.id }));
+      return;
+    }
     const socket = this.socket;
     if (!socket) return;
 
     this.status = "testing";
+    const abort = new AbortController();
+    this.runAbort = abort;
+    this.runningId = runId;
+    const collected: PhaseMetrics[] = [];
+    this.lastResult = undefined;
     this.statusText = "正在准备测试";
     this.emit("state", this.getState());
 
-    const phases = plan.phases.filter((phase) => RUNNABLE_PHASES.has(phase.kind));
+    const phases = plan.phases;
     for (let index = 0; index < phases.length; index += 1) {
       const phase = phases[index];
+      this.liveProgress = undefined;
       this.statusText = `正在测试 ${phase.label} (${index + 1}/${phases.length})`;
       this.pushLog(`开始 ${phase.label}`);
 
       let metrics: PhaseMetrics;
       try {
-        metrics = await this.iperfExec(
+        metrics = phase.kind === "connectivity" || phase.kind === "latency"
+          ? await this.probeExec({ host: serverAddress, phaseKind: phase.kind, durationSeconds: phase.durationSeconds, port: this.connectedServer?.port, signal: abort.signal })
+          : await runWithLoadedLatency(
           {
             host: serverAddress,
             phaseKind: phase.kind,
             durationSeconds: phase.durationSeconds,
-            targetBitrateMbps: phase.targetBitrateMbps
+            targetBitrateMbps: phase.targetBitrateMbps,
+            signal: abort.signal
           },
-          (u: IntervalUpdate) => this.pushLog(formatInterval(u))
+          collected.find(p => p.phaseId === "latency"), this.iperfExec, this.probeExec,
+          (u: IntervalUpdate) => {
+            if (abort.signal.aborted || this.socket !== socket) return;
+            const interval = this.recordProgress(phase.id, u);
+            socket.write(encode({ type: "phase-progress", runId, clientId: this.identity.id, phaseId: phase.id, interval }));
+          }
         );
         const mbps = metrics.throughputMbps !== undefined ? `${metrics.throughputMbps.toFixed(1)} Mbps` : "—";
         this.pushLog(`完成 ${phase.label}: ${mbps}`);
@@ -225,19 +275,43 @@ export class ControlClient extends EventEmitter {
           errors: [message]
         };
       }
-      socket.write(encode({ type: "phase-result", clientId: this.identity.id, metrics }));
+      if (abort.signal.aborted || this.socket !== socket) return;
+      metrics = finalizePhase(phase, metrics);
+      collected.push(metrics);
+      this.lastResult = [...collected];
+      // Raw samples have already streamed individually; keep the final frame bounded.
+      socket.write(encode({ type: "phase-result", runId, clientId: this.identity.id, metrics: { ...metrics, intervals: undefined } }));
     }
 
-    socket.write(encode({ type: "test-complete", clientId: this.identity.id }));
+    socket.write(encode({ type: "test-complete", runId, clientId: this.identity.id }));
     this.status = "connected";
+    this.liveProgress = undefined;
     this.statusText = "测试完成";
     this.emit("state", this.getState());
   }
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.runAbort?.abort();
+    this.runAbort = undefined;
+    this.runningId = undefined;
+    this.status = "searching";
+    this.statusText = "正在搜索服务器";
+    this.connectedServer = undefined;
+    this.currentSuite = undefined;
+    this.lastResult = undefined;
+    this.liveProgress = undefined;
     this.socket?.destroy();
     this.socket = undefined;
+  }
+
+  private recordProgress(phaseId: string, update: IntervalUpdate) {
+    const interval = { startSeconds: update.startSeconds ?? Math.max(0, update.second - 1), endSeconds: update.endSeconds ?? update.second,
+      mbps: update.throughputMbps, side: update.side ?? (update.phaseKind.endsWith("download") ? "receiver" as const : "sender" as const) };
+    const previous = this.liveProgress?.phaseId === phaseId ? this.liveProgress.intervals : [];
+    this.liveProgress = { phaseId, intervals: [...previous.slice(-119), interval] };
+    this.pushLog(formatInterval(update));
+    return interval;
   }
 
   private pushLog(line: string): void {
@@ -246,6 +320,11 @@ export class ControlClient extends EventEmitter {
       this.socket.write(encode({ type: "log", clientId: this.identity.id, line }));
     }
     this.emit("state", this.getState());
+  }
+
+  notifyDiscoveryError(message: string): void {
+    this.statusText = `自动搜索不可用：${message}；请使用手动 IP 连接`;
+    this.pushLog(this.statusText);
   }
 
   private fail(text: string): void {

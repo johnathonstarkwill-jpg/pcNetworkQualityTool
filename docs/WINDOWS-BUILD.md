@@ -77,3 +77,8 @@ node_modules\electron\dist\electron.exe .
 
 - 安装包**未代码签名** → SmartScreen 会提示"未知发布者"，点"仍要运行"即可。
 - macOS 版二进制不在本包内（不需要）；Windows 只需 win32-x64 的 iperf3。
+
+
+## GitHub Actions
+
+Push to `master` or manually run **Windows build** under Actions. The Windows x64 job installs locked dependencies, runs tests, prepares iperf3 3.21 with its DLLs, checks runtime support, and creates the NSIS installer. Download the `PC-Network-Quality-Tool-Windows-x64` artifact from the successful run; artifacts are retained for 30 days. The installer is unsigned unless a signing certificate is configured separately.

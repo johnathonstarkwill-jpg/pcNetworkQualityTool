@@ -12,22 +12,14 @@ bundled as extraResources under `<resources>/iperf3/`.
 
 Run `npm run fetch:iperf3` once on each build machine before `npm run dist`.
 
-## Choosing real binary URLs (build-machine setup)
+## Reproducible preparation and packaging checks
 
-The URLs in `scripts/fetch-iperf3.mjs` are placeholders and MUST be replaced
-before packaging ships working binaries:
+`npm run fetch:iperf3` prepares version 3.21 for the current build host:
 
-- **darwin-arm64 / darwin-x64**: point at a real static macOS `iperf3` build
-  (e.g. a trusted GitHub release asset). A Homebrew-installed `iperf3` is
-  dynamically linked and not portable, so prefer a static build.
-- **win32-x64**: most Windows `iperf3` distributions (incl. iperf.fr) ship as a
-  ZIP containing `iperf3.exe` **plus** `cygwin1.dll` (and sometimes other
-  `cygwin-*.dll`). A bare `iperf3.exe` will fail to launch without those DLLs.
-  Either:
-  1. download the ZIP, extract it, and place `iperf3.exe` together with its
-     `cygwin*.dll` files in `win32-x64/` (update the fetch script to extract via
-     `child_process` + `Expand-Archive`/`unzip`), or
-  2. use a natively-compiled standalone Windows build that needs no Cygwin DLLs.
+- macOS: downloads the ESnet release source and builds static libiperf without OpenSSL, then ad-hoc signs the executable. Requires Xcode command line tools (`make`, compiler, `codesign`).
+- Windows x64: downloads the ar51an 3.21 release ZIP and installs the executable together with all bundled DLLs. Requires the Windows `tar` command.
+
+The script verifies the executable version and `--json-stream` support. On macOS it also rejects dependencies outside system libraries. `npm run package` and `npm run dist` run the same preflight and stop if binaries are missing, incompatible, or nonportable. Run the fetch step on the target build platform; cross-platform binaries cannot be runtime-verified on another operating system.
 
 ## macOS code signing (Apple Silicon)
 

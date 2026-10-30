@@ -14,27 +14,27 @@ const TEST_SUITES: TestSuiteDefinition[] = [
   {
     id: "quick-check",
     label: "快速检测",
-    description: "1-2 分钟，快速发现明显网络问题。"
+    description: "约 1 分钟，采集双向 TCP/UDP、空载和负载 RTT。"
   },
   {
     id: "standard-acceptance",
-    label: "标准验收",
-    description: "5-8 分钟，生成正式验收报告。"
+    label: "标准测试",
+    description: "约 4 分钟，采集双向 TCP/UDP、负载延迟与吞吐趋势。"
   },
   {
     id: "video-meeting",
-    label: "视频会议模拟",
-    description: "模拟实时音视频会议。"
+    label: "视频会议速率测试",
+    description: "采集双向 TCP，并以 4 Mbps 进行 3 分钟 双向 UDP 测试（每方向 3 分钟）。"
   },
   {
     id: "hd-video",
-    label: "高清视频传输模拟",
-    description: "模拟 1080p/4K 持续视频流。"
+    label: "高清视频速率测试",
+    description: "采集双向 TCP，并以 25 Mbps 进行 3 分钟 双向 UDP 测试（每方向 3 分钟）。"
   },
   {
     id: "long-stability",
     label: "长时间稳定性测试",
-    description: "发现间歇性丢包和波动。"
+    description: "每方向 30 分钟、8 Mbps UDP 测试，记录吞吐波动和丢包。"
   }
 ];
 
@@ -43,7 +43,8 @@ const PHASE_LABELS: Record<TestPhase["kind"], string> = {
   latency: "延迟采样",
   "tcp-upload": "TCP 上行吞吐量",
   "tcp-download": "TCP 下行吞吐量",
-  "udp-quality": "UDP 质量"
+  "udp-quality": "UDP 上行质量",
+  "udp-download": "UDP 下行质量"
 };
 
 const RUN_MODES: TestPlan["runMode"][] = ["single", "separate", "concurrent"];
@@ -114,7 +115,8 @@ function commonPhases(
     phase("latency", latencySeconds),
     phase("tcp-upload", tcpSeconds),
     phase("tcp-download", tcpSeconds),
-    phase("udp-quality", udpSeconds, targetBitrateMbps)
+    phase("udp-quality", udpSeconds, targetBitrateMbps),
+    phase("udp-download", udpSeconds, targetBitrateMbps)
   ];
 }
 

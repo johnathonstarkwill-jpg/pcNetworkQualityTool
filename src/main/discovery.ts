@@ -24,28 +24,36 @@ export function parseDiscoveryMessage(buffer: Buffer): DiscoveredServer | null {
   }
 }
 
-export class DiscoveryBroadcaster {
+export class DiscoveryBroadcaster extends EventEmitter {
   private socket = dgram.createSocket("udp4");
   private timer: NodeJS.Timeout | undefined;
+  private stopped = false;
 
-  constructor(private readonly server: Omit<DiscoveredServer, "lastSeenAt">) {}
+  constructor(private readonly server: Omit<DiscoveredServer, "lastSeenAt">) {
+    super();
+    this.socket.on("error", error => this.emit("network-error", error));
+  }
 
   start(): void {
     this.socket.bind(() => {
+      if (this.stopped) return;
       this.socket.setBroadcast(true);
+      this.broadcast();
+      this.timer = setInterval(() => this.broadcast(), 1000);
     });
-    this.timer = setInterval(() => this.broadcast(), 1000);
-    this.broadcast();
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.timer) clearInterval(this.timer);
     this.socket.close();
   }
 
   private broadcast(): void {
     const message = serializeDiscoveryMessage({ ...this.server, lastSeenAt: Date.now() });
-    this.socket.send(message, DISCOVERY_PORT, "255.255.255.255");
+    this.socket.send(message, DISCOVERY_PORT, "255.255.255.255", error => {
+      if (error) this.emit("network-error", error);
+    });
   }
 }
 
@@ -53,9 +61,10 @@ export class DiscoveryScanner extends EventEmitter {
   private socket = dgram.createSocket("udp4");
 
   start(): void {
-    this.socket.on("message", (message) => {
+    this.socket.on("error", error => this.emit("network-error", error));
+    this.socket.on("message", (message, remote) => {
       const server = parseDiscoveryMessage(message);
-      if (server) this.emit("server", server);
+      if (server) this.emit("server", { ...server, address: remote.address, lastSeenAt: Date.now() });
     });
 
     this.socket.bind(DISCOVERY_PORT);
@@ -87,7 +96,7 @@ function isValidDiscoveredServer(value: DiscoveredServer): boolean {
     value.address.length > 0 &&
     typeof value.port === "number" &&
     Number.isInteger(value.port) &&
-    value.port > 0 &&
+    value.port > 0 && value.port <= 65535 &&
     typeof value.lastSeenAt === "number" &&
     Number.isFinite(value.lastSeenAt)
   );

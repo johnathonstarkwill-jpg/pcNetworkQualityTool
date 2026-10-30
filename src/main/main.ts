@@ -3,7 +3,7 @@ import isDev from "electron-is-dev";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { registerIpcHandlers } from "./ipc.js";
+import { registerIpcHandlers, stopNetworking } from "./ipc.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,7 +34,7 @@ async function createWindow(): Promise<void> {
   }
 }
 
-registerIpcHandlers(() => mainWindow?.webContents);
+registerIpcHandlers(() => mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : undefined);
 
 app.whenReady().then(createWindow);
 
@@ -44,4 +44,12 @@ app.on("window-all-closed", () => {
 
 app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) void createWindow();
+});
+
+let quitting = false;
+app.on("before-quit", (event) => {
+  if (quitting) return;
+  event.preventDefault();
+  quitting = true;
+  void stopNetworking().finally(() => app.quit());
 });

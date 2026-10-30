@@ -5,6 +5,8 @@ import { ControlClient } from "../../src/main/controlClient";
 import type { ClientSessionState } from "../../src/shared/types";
 import net from "node:net";
 
+const probeExec = async (input: { phaseKind: string }) => ({ phaseId: input.phaseKind, reachable: true, rttSamples: 1, packetsSent: 1, packetsReceived: 1, packetsLost: 0, packetLossPercent: 0, latencyMs: { min: 1, avg: 1, max: 1, p95: 1, p99: 1 }, errors: [] });
+
 let server: ControlServer | undefined;
 
 afterEach(async () => {
@@ -121,13 +123,13 @@ describe("ControlServer.startPlan orchestration", () => {
       timeline.push(`${tag}:start:${input.phaseKind}`);
       await new Promise((r) => setTimeout(r, 20));
       timeline.push(`${tag}:end:${input.phaseKind}`);
-      return { phaseId: input.phaseKind, throughputMbps: 50, udpLossPercent: 0, jitterMs: 1, errors: [] };
+      return { phaseId: input.phaseKind, throughputMbps: 50, udpLossPercent: 0, jitterMs: 1, packetsSent: 10, packetsLost: 0, errors: [] };
     };
 
     const mkClient = (id: string) =>
       new Promise<import("../../src/main/controlClient").ControlClient>(async (resolve) => {
         const { ControlClient } = await import("../../src/main/controlClient");
-        const c = new ControlClient({ iperfExec: makeExec(id) as never, id, name: id });
+        const c = new ControlClient({ probeExec, iperfExec: makeExec(id) as never, id, name: id });
         c.on("state", (s) => {
           if (s.status === "connected" && s.statusText.includes("等待")) resolve(c);
         });
@@ -154,9 +156,9 @@ describe("ControlServer.startPlan orchestration", () => {
 
     expect(finalState.latestReport?.results.length).toBe(2);
     for (const r of finalState.latestReport!.results) {
-      expect(r.phases.length).toBe(3);
+      expect(r.phases.length).toBe(6);
     }
-    expect(finalState.latestReport?.summary.rating).toBeDefined();
+    expect(finalState.latestReport?.summary.totalPhases).toBe(12);
 
     a.disconnect();
     b.disconnect();
@@ -169,11 +171,11 @@ describe("ControlServer.startPlan orchestration", () => {
 
     const exec = async (input: { phaseKind: string }) => {
       await new Promise((r) => setTimeout(r, 10));
-      return { phaseId: input.phaseKind, throughputMbps: 10, udpLossPercent: 0, jitterMs: 1, errors: [] };
+      return { phaseId: input.phaseKind, throughputMbps: 10, udpLossPercent: 0, jitterMs: 1, packetsSent: 10, packetsLost: 0, errors: [] };
     };
     const { ControlClient } = await import("../../src/main/controlClient");
     const c = await new Promise<InstanceType<typeof ControlClient>>((resolve) => {
-      const cc = new ControlClient({ iperfExec: exec as never, id: "solo", name: "solo" });
+      const cc = new ControlClient({ probeExec, iperfExec: exec as never, id: "solo", name: "solo" });
       cc.on("state", (s) => { if (s.status === "connected" && s.statusText.includes("等待")) resolve(cc); });
       cc.connectToAddress("127.0.0.1", port);
     });
@@ -188,7 +190,7 @@ describe("ControlServer.startPlan orchestration", () => {
 
     const finalState = await reported;
     expect(finalState.latestReport?.results.length).toBe(1);
-    expect(finalState.latestReport?.results[0].phases.length).toBe(3);
+    expect(finalState.latestReport?.results[0].phases.length).toBe(6);
 
     c.disconnect();
     await srv.close();
@@ -206,7 +208,7 @@ describe("ControlClient plan execution", () => {
       return { phaseId: input.phaseKind, throughputMbps: 100, errors: [] };
     };
 
-    const client = new ControlClient({ iperfExec: fakeExec as never, id: "cx", name: "CX" });
+    const client = new ControlClient({ probeExec, iperfExec: fakeExec as never, id: "cx", name: "CX" });
     const connected = new Promise<void>((resolve) => {
       client.on("state", (s) => {
         if (s.status === "connected" && s.statusText.includes("等待")) resolve();
@@ -226,8 +228,8 @@ describe("ControlClient plan execution", () => {
 
     await done;
     expect(completed).toBe(true);
-    expect(runnableKinds).toEqual(["tcp-upload", "tcp-download", "udp-quality"]);
-    expect(phaseResults.length).toBe(3);
+    expect(runnableKinds).toEqual(["tcp-upload", "tcp-download", "udp-quality", "udp-download"]);
+    expect(phaseResults.length).toBe(6);
 
     client.disconnect();
     await srv.close();
@@ -235,16 +237,16 @@ describe("ControlClient plan execution", () => {
 });
 
 describe("ControlServer logging and suite coloring", () => {
-  it("relays client logs, records the suite rating, and broadcasts suite-complete", async () => {
+  it("relays client logs, records the suite completion status, and broadcasts suite-complete", async () => {
     const srv = new ControlServer();
     const port = await srv.listen(0);
 
     const fakeExec = async (input: { phaseKind: string }, onInterval?: (u: unknown) => void) => {
       onInterval?.({ phaseKind: input.phaseKind, second: 1, throughputMbps: 50 });
-      return { phaseId: input.phaseKind, throughputMbps: 50, udpLossPercent: 0, jitterMs: 1, errors: [] };
+      return { phaseId: input.phaseKind, throughputMbps: 50, udpLossPercent: 0, jitterMs: 1, packetsSent: 10, packetsLost: 0, errors: [] };
     };
     const { ControlClient } = await import("../../src/main/controlClient");
-    const client = new ControlClient({ iperfExec: fakeExec as never, id: "cl", name: "Box" });
+    const client = new ControlClient({ probeExec, iperfExec: fakeExec as never, id: "cl", name: "Box" });
     await new Promise<void>((resolve) => {
       client.on("state", (s) => { if (s.status === "connected" && s.statusText.includes("等待")) resolve(); });
       client.connectToAddress("127.0.0.1", port);
@@ -258,11 +260,11 @@ describe("ControlServer logging and suite coloring", () => {
     const finalState = await reported;
 
     expect(finalState.log.some((l) => l.includes("Box"))).toBe(true);
-    expect(finalState.suiteRatings["quick-check"]).toBeDefined();
-    expect(finalState.suiteRatings["quick-check"]).toBe(finalState.latestReport?.summary.rating);
+    expect(finalState.suiteStatuses["quick-check"]).toBeDefined();
+    expect(finalState.suiteStatuses["quick-check"]).toBe("completed");
 
     await new Promise((r) => setTimeout(r, 100));
-    expect(client.getState().currentSuite?.status).toBe(finalState.latestReport?.summary.rating);
+    expect(client.getState().currentSuite?.status).toBe("completed");
 
     client.disconnect();
     await srv.close();
@@ -279,7 +281,7 @@ describe("ControlClient logging and currentSuite", () => {
       return { phaseId: input.phaseKind, throughputMbps: 50, errors: [] };
     };
     const { ControlClient } = await import("../../src/main/controlClient");
-    const client = new ControlClient({ iperfExec: fakeExec as never, id: "lg", name: "LG" });
+    const client = new ControlClient({ probeExec, iperfExec: fakeExec as never, id: "lg", name: "LG" });
     await new Promise<void>((resolve) => {
       client.on("state", (s) => { if (s.status === "connected" && s.statusText.includes("等待")) resolve(); });
       client.connectToAddress("127.0.0.1", port);
@@ -307,12 +309,12 @@ describe("ControlServer.startPlan client subset", () => {
 
     const exec = async (input: { phaseKind: string }) => {
       await new Promise((r) => setTimeout(r, 5));
-      return { phaseId: input.phaseKind, throughputMbps: 10, udpLossPercent: 0, jitterMs: 1, errors: [] };
+      return { phaseId: input.phaseKind, throughputMbps: 10, udpLossPercent: 0, jitterMs: 1, packetsSent: 10, packetsLost: 0, errors: [] };
     };
     const { ControlClient } = await import("../../src/main/controlClient");
     const mk = (id: string) =>
       new Promise<InstanceType<typeof ControlClient>>((resolve) => {
-        const c = new ControlClient({ iperfExec: exec as never, id, name: id });
+        const c = new ControlClient({ probeExec, iperfExec: exec as never, id, name: id });
         c.on("state", (s) => { if (s.status === "connected" && s.statusText.includes("等待")) resolve(c); });
         c.connectToAddress("127.0.0.1", port);
       });

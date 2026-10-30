@@ -11,8 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "package": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder",
+    "package": "npm run build && node scripts/check-iperf3.mjs && electron-builder --dir",
+    "dist": "npm run build && node scripts/check-iperf3.mjs && electron-builder",
     "fetch:iperf3": "node scripts/fetch-iperf3.mjs",
     "icon": "node scripts/render-icon.mjs"
   },

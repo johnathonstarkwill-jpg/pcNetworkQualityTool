@@ -1,7 +1,8 @@
+import { summarizeStability } from "../shared/stability.js";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PhaseMetrics, TestPhaseKind } from "../shared/types.js";
+import type { PhaseMetrics, TestPhaseKind, ThroughputSample } from "../shared/types.js";
 
 export interface BuildIperfArgsInput {
   host: string;
@@ -12,12 +13,17 @@ export interface BuildIperfArgsInput {
 
 export interface RunIperfInput extends BuildIperfArgsInput {
   binaryPath?: string;
+  signal?: AbortSignal;
+  onDataEnd?: () => void;
 }
 
 export interface IntervalUpdate {
   phaseKind: TestPhaseKind;
   second: number;
   throughputMbps: number;
+  startSeconds?: number;
+  endSeconds?: number;
+  side?: "sender" | "receiver";
   udpLossPercent?: number;
   jitterMs?: number;
 }
@@ -30,6 +36,12 @@ interface IperfSum {
   bits_per_second?: number;
   lost_percent?: number;
   jitter_ms?: number;
+  bytes?: number;
+  seconds?: number;
+  retransmits?: number;
+  packets?: number;
+  lost_packets?: number;
+  sender?: boolean;
 }
 
 interface IperfIntervalData {
@@ -37,8 +49,8 @@ interface IperfIntervalData {
 }
 
 interface IperfEndData {
-  sum_sent?: { bits_per_second?: number };
-  sum_received?: { bits_per_second?: number };
+  sum_sent?: IperfSum;
+  sum_received?: IperfSum;
   sum?: IperfSum;
 }
 
@@ -55,11 +67,11 @@ export function buildIperfArgs(input: BuildIperfArgsInput): string[] {
 
   const args = ["-c", input.host, "--json-stream", "-t", String(input.durationSeconds)];
 
-  if (input.phaseKind === "tcp-download") {
+  if (input.phaseKind === "tcp-download" || input.phaseKind === "udp-download") {
     args.push("-R");
   }
 
-  if (input.phaseKind === "udp-quality") {
+  if ((input.phaseKind === "udp-quality" || input.phaseKind === "udp-download")) {
     args.push("-u", "-b", `${input.targetBitrateMbps ?? 10}M`);
   }
 
@@ -71,6 +83,9 @@ export async function runIperf(input: RunIperfInput, onInterval?: OnInterval): P
   const args = buildIperfArgs(input);
 
   let endData: IperfEndData | undefined;
+  const intervals: ThroughputSample[] = [];
+  let processError: string | undefined;
+  try {
   await runProcessStreaming(binaryPath, args, (line) => {
     let parsed: IperfStreamLine;
     try {
@@ -79,28 +94,42 @@ export async function runIperf(input: RunIperfInput, onInterval?: OnInterval): P
       return;
     }
 
+    if (!parsed || typeof parsed !== "object") return;
     if (parsed.event === "interval") {
       const update = intervalUpdate(input.phaseKind, parsed.data ?? {});
-      if (update && onInterval) onInterval(update);
+      if (update) {
+        intervals.push({ startSeconds: update.startSeconds!, endSeconds: update.endSeconds!, mbps: update.throughputMbps, side: update.side! });
+        onInterval?.(update);
+      }
     } else if (parsed.event === "end") {
       endData = parsed.data;
+      input.onDataEnd?.();
     }
-  });
+  }, (input.durationSeconds + 15) * 1000, input.signal);
 
-  return extractEndMetrics(input.phaseKind, endData);
+  } catch (error) {
+    if (input.signal?.aborted) throw error;
+    processError = error instanceof Error ? error.message : "iperf3 运行失败";
+  }
+  const metrics = extractEndMetrics(input.phaseKind, endData);
+  return { ...metrics, errors: processError ? [processError] : metrics.errors, targetBitrateMbps: input.targetBitrateMbps,
+    intervals, throughputSeriesSide: intervals[0]?.side, stability: summarizeStability(intervals, metrics.durationSeconds) };
 }
 
 // Derive a per-interval update from one --json-stream "interval" event's data.
 export function intervalUpdate(phaseKind: TestPhaseKind, data: IperfIntervalData): IntervalUpdate | null {
   const sum = data.sum;
-  if (!sum || typeof sum.bits_per_second !== "number") return null;
+  if (!sum || typeof sum.bits_per_second !== "number" || !Number.isFinite(sum.bits_per_second) || sum.bits_per_second < 0
+    || typeof sum.start !== "number" || typeof sum.end !== "number" || sum.end <= sum.start) return null;
 
   return {
     phaseKind,
-    second: Math.round(sum.end ?? 0),
+    second: Math.round(sum.end),
+    startSeconds: sum.start, endSeconds: sum.end,
+    side: sum.sender === false || phaseKind === "tcp-download" || phaseKind === "udp-download" ? "receiver" : "sender",
     throughputMbps: toMbps(sum.bits_per_second),
-    ...(typeof sum.lost_percent === "number" ? { udpLossPercent: sum.lost_percent } : {}),
-    ...(typeof sum.jitter_ms === "number" ? { jitterMs: sum.jitter_ms } : {})
+    ...(sum.sender === false && typeof sum.lost_percent === "number" ? { udpLossPercent: sum.lost_percent } : {}),
+    ...(sum.sender === false && typeof sum.jitter_ms === "number" ? { jitterMs: sum.jitter_ms } : {})
   };
 }
 
@@ -110,29 +139,30 @@ export function extractEndMetrics(phaseKind: TestPhaseKind, endData: IperfEndDat
     return { phaseId: phaseKind, errors: ["Missing iperf3 end event."] };
   }
 
-  if (phaseKind === "udp-quality") {
-    const sum = endData.sum;
-    if (!sum || typeof sum.bits_per_second !== "number") {
-      return { phaseId: phaseKind, errors: ["Missing UDP summary in iperf3 output."] };
-    }
-    return {
-      phaseId: phaseKind,
-      errors: [],
-      throughputMbps: toMbps(sum.bits_per_second),
-      udpLossPercent: sum.lost_percent,
-      jitterMs: sum.jitter_ms
-    };
+  const receiver = endData.sum_received ?? ((phaseKind === "udp-quality" || phaseKind === "udp-download") && endData.sum?.sender !== true ? endData.sum : undefined);
+  const sender = endData.sum_sent;
+  if (!receiver || typeof receiver.bits_per_second !== "number" || !Number.isFinite(receiver.bits_per_second)) {
+    return { phaseId: phaseKind, errors: ["Missing receiver summary in iperf3 output."] };
   }
-
-  const tcpSummary = endData.sum_sent ?? endData.sum_received;
-  if (!tcpSummary || typeof tcpSummary.bits_per_second !== "number") {
-    return { phaseId: phaseKind, errors: ["Missing TCP summary in iperf3 output."] };
-  }
-  return {
-    phaseId: phaseKind,
-    errors: [],
-    throughputMbps: toMbps(tcpSummary.bits_per_second)
+  const metrics: PhaseMetrics = {
+    phaseId: phaseKind, errors: [], throughputMbps: toMbps(receiver.bits_per_second),
+    senderMbps: typeof sender?.bits_per_second === "number" ? toMbps(sender.bits_per_second) : undefined,
+    bytesReceived: receiver.bytes, durationSeconds: receiver.seconds,
+    ...((phaseKind !== "udp-quality" && phaseKind !== "udp-download") ? { retransmits: sender?.retransmits } : {})
   };
+  if ((phaseKind === "udp-quality" || phaseKind === "udp-download")) {
+    metrics.udpLossPercent = receiver.lost_percent;
+    metrics.jitterMs = receiver.jitter_ms;
+    metrics.packetsSent = receiver.packets;
+    metrics.packetsLost = receiver.lost_packets;
+    if (receiver.packets !== undefined && receiver.lost_packets !== undefined) {
+      metrics.packetsReceived = receiver.packets - receiver.lost_packets;
+    }
+    if (receiver.lost_percent === undefined || receiver.jitter_ms === undefined) {
+      metrics.errors.push("UDP 接收端未提供丢包率或抖动数据。");
+    }
+  }
+  return metrics;
 }
 
 export function resolveIperfBinary(): string {
@@ -155,7 +185,7 @@ function validateIperfInput(input: BuildIperfArgsInput): void {
     throw new Error("Invalid duration: durationSeconds must be a positive finite number.");
   }
   if (
-    input.phaseKind === "udp-quality" &&
+    (input.phaseKind === "udp-quality" || input.phaseKind === "udp-download") &&
     input.targetBitrateMbps !== undefined &&
     !isPositiveFinite(input.targetBitrateMbps)
   ) {
@@ -172,9 +202,10 @@ function toMbps(bitsPerSecond: number): number {
 }
 
 // Spawn a process and invoke onLine for each complete stdout line as it arrives.
-function runProcessStreaming(command: string, args: string[], onLine: (line: string) => void): Promise<void> {
+function runProcessStreaming(command: string, args: string[], onLine: (line: string) => void, timeoutMs: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { windowsHide: true });
+    const child = spawn(command, args, { windowsHide: true, signal });
+    const timer = setTimeout(() => { child.kill(); reject(new Error("iperf3 测试超时")); }, timeoutMs);
     let buffer = "";
     let stderr = "";
 
@@ -193,9 +224,10 @@ function runProcessStreaming(command: string, args: string[], onLine: (line: str
       stderr += chunk.toString("utf8");
     });
 
-    child.on("error", reject);
+    child.on("error", (error) => { clearTimeout(timer); reject(error); });
 
     child.on("close", (code) => {
+      clearTimeout(timer);
       if (buffer.trim().length > 0) onLine(buffer);
       if (code === 0) {
         resolve();

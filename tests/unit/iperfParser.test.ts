@@ -23,14 +23,14 @@ describe("buildIperfArgs", () => {
 describe("intervalUpdate", () => {
   it("derives a tcp interval update from interval data", () => {
     const u = intervalUpdate("tcp-upload", { sum: { start: 1, end: 2, bits_per_second: 100_000_000 } });
-    expect(u).toEqual({ phaseKind: "tcp-upload", second: 2, throughputMbps: 100 });
+    expect(u).toEqual({ phaseKind: "tcp-upload", second: 2, startSeconds: 1, endSeconds: 2, side: "sender", throughputMbps: 100 });
   });
 
   it("includes loss and jitter for udp interval data", () => {
     const u = intervalUpdate("udp-quality", {
-      sum: { start: 4, end: 5, bits_per_second: 8_000_000, lost_percent: 1.5, jitter_ms: 0.3 }
+      sum: { sender: false, start: 4, end: 5, bits_per_second: 8_000_000, lost_percent: 1.5, jitter_ms: 0.3 }
     });
-    expect(u).toEqual({ phaseKind: "udp-quality", second: 5, throughputMbps: 8, udpLossPercent: 1.5, jitterMs: 0.3 });
+    expect(u).toEqual({ phaseKind: "udp-quality", second: 5, startSeconds: 4, endSeconds: 5, side: "receiver", throughputMbps: 8, udpLossPercent: 1.5, jitterMs: 0.3 });
   });
 
   it("returns null when interval data lacks a numeric throughput", () => {
@@ -40,7 +40,7 @@ describe("intervalUpdate", () => {
 
 describe("extractEndMetrics", () => {
   it("reads tcp throughput from the end event data", () => {
-    const m = extractEndMetrics("tcp-upload", { sum_sent: { bits_per_second: 943_000_000 } });
+    const m = extractEndMetrics("tcp-upload", { sum_received: { bits_per_second: 943_000_000 } });
     expect(m.phaseId).toBe("tcp-upload");
     expect(m.throughputMbps).toBeCloseTo(943, 0);
     expect(m.errors).toEqual([]);
@@ -59,4 +59,24 @@ describe("extractEndMetrics", () => {
     const m = extractEndMetrics("tcp-upload", undefined);
     expect(m.errors).toEqual(["Missing iperf3 end event."]);
   });
+});
+
+ it("uses receiver throughput and sender retransmits, retaining measured zeros", () => {
+   const m = extractEndMetrics("tcp-download", { sum_sent: { bits_per_second: 100_000_000, retransmits: 0 }, sum_received: { bits_per_second: 90_000_000, bytes: 100, seconds: 2 } });
+   expect(m).toMatchObject({ throughputMbps: 90, senderMbps: 100, retransmits: 0, bytesReceived: 100, durationSeconds: 2 });
+ });
+ it("prefers receiver UDP metrics over legacy sender sum", () => {
+   const m = extractEndMetrics("udp-quality", { sum: { bits_per_second: 8_000_000, sender: true }, sum_received: { bits_per_second: 7_000_000, packets: 100, lost_packets: 5, lost_percent: 5, jitter_ms: 2 } });
+   expect(m).toMatchObject({ throughputMbps: 7, packetsSent: 100, packetsReceived: 95, packetsLost: 5, udpLossPercent: 5, jitterMs: 2 });
+ });
+ it("does not invent receiver metrics from a sender-only summary", () => {
+   expect(extractEndMetrics("tcp-upload", { sum_sent: { bits_per_second: 10 } }).errors.length).toBe(1);
+   expect(extractEndMetrics("udp-quality", { sum: { bits_per_second: 10, sender: true } }).errors.length).toBe(1);
+ });
+
+it("runs UDP download in reverse and parses receiver metrics", () => {
+  expect(buildIperfArgs({ host: "127.0.0.1", phaseKind: "udp-download", durationSeconds: 5, targetBitrateMbps: 8 }))
+    .toEqual(["-c", "127.0.0.1", "--json-stream", "-t", "5", "-R", "-u", "-b", "8M"]);
+  expect(extractEndMetrics("udp-download", { sum_received: { bits_per_second: 7_000_000, packets: 100, lost_packets: 1, lost_percent: 1, jitter_ms: .1 } }))
+    .toMatchObject({ throughputMbps: 7, packetsReceived: 99, udpLossPercent: 1 });
 });

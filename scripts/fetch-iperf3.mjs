@@ -1,70 +1,38 @@
-// Downloads per-platform iperf3 binaries into assets/iperf3/<platform>-<arch>/.
-// Idempotent: skips a target that already has the binary. Run before packaging:
-//   npm run fetch:iperf3
-import { createWriteStream } from "node:fs";
-import { chmod, mkdir, stat, unlink } from "node:fs/promises";
-import path from "node:path";
-import { pipeline } from "node:stream/promises";
-
-// Pin to known-good upstream archives. Update these URLs when bumping versions.
-// Each entry downloads a single ready-to-run binary (no archive extraction) to
-// keep the script dependency-free; if upstream only ships archives, download
-// the archive here and extract with the platform's tar/unzip via child_process.
-const TARGETS = [
-  {
-    dir: "win32-x64",
-    binary: "iperf3.exe",
-    // PLACEHOLDER: iperf.fr ships a ZIP with iperf3.exe + cygwin1.dll; a bare
-    // .exe will not launch. Replace per assets/iperf3/README.md before packaging.
-    url: "https://iperf.fr/download/windows/iperf-3.1.3-win64.exe"
-  },
-  {
-    dir: "darwin-arm64",
-    binary: "iperf3",
-    url: "https://homebrew.bintray.example/iperf3-darwin-arm64" // replace with a real static build URL
-  }
-];
-
-const ROOT = path.resolve(import.meta.dirname, "..");
-
-async function exists(file) {
-  try {
-    await stat(file);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function download(url, dest) {
+// Prepare a pinned build for the current build host; never download a bare Windows EXE.
+import { mkdtemp, mkdir, copyFile, readdir, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import os from 'node:os';
+const version = '3.21';
+const root = path.resolve(import.meta.dirname, '..');
+const dest = path.join(root, 'assets/iperf3', `${process.platform}-${process.arch}`);
+const temporary = await mkdtemp(path.join(os.tmpdir(), 'network-iperf-build-'));
+async function download(url, file) {
   const response = await fetch(url);
-  if (!response.ok || !response.body) {
-    throw new Error(`Download failed (${response.status}): ${url}`);
-  }
-  await pipeline(response.body, createWriteStream(dest));
+  if (!response.ok) throw new Error(`Download failed: ${response.status} ${url}`);
+  await writeFile(file, Buffer.from(await response.arrayBuffer()));
 }
-
-for (const target of TARGETS) {
-  const dir = path.join(ROOT, "assets", "iperf3", target.dir);
-  const dest = path.join(dir, target.binary);
-
-  if (await exists(dest)) {
-    console.log(`skip ${target.dir} (already present)`);
-    continue;
+await mkdir(dest, { recursive: true });
+if (process.platform === 'win32' && process.arch === 'x64') {
+  const zip = path.join(temporary, 'iperf.zip');
+  await download(`https://github.com/ar51an/iperf3-win-builds/releases/download/${version}/iperf-${version}-win64.zip`, zip);
+  execFileSync('tar', ['-xf', zip, '-C', temporary]);
+  async function copyBinaries(dir) {
+    for (const item of await readdir(dir, { withFileTypes: true })) {
+      const file = path.join(dir, item.name);
+      if (item.isDirectory()) await copyBinaries(file);
+      else if (/\.(exe|dll)$/i.test(item.name)) await copyFile(file, path.join(dest, item.name));
+    }
   }
-
-  await mkdir(dir, { recursive: true });
-  console.log(`downloading ${target.dir} <- ${target.url}`);
-  try {
-    await download(target.url, dest);
-  } catch (error) {
-    await unlink(dest).catch(() => {
-      // file may not have been created; ignore
-    });
-    throw error;
-  }
-  if (!target.binary.endsWith(".exe")) await chmod(dest, 0o755);
-  console.log(`done ${target.dir}`);
-}
-
-console.log("iperf3 binaries ready");
+  await copyBinaries(temporary);
+} else if (process.platform === 'darwin') {
+  const archive = path.join(temporary, 'source.tar.gz');
+  await download(`https://github.com/esnet/iperf/releases/download/${version}/iperf-${version}.tar.gz`, archive);
+  execFileSync('tar', ['-xf', archive, '-C', temporary]);
+  const cwd = path.join(temporary, `iperf-${version}`);
+  execFileSync('./configure', ['--disable-shared', '--enable-static', '--without-openssl'], { cwd, stdio: 'inherit' });
+  execFileSync('make', ['-j', '2'], { cwd, stdio: 'inherit' });
+  await copyFile(path.join(cwd, 'src/iperf3'), path.join(dest, 'iperf3'));
+  execFileSync('codesign', ['--force', '-s', '-', path.join(dest, 'iperf3')]);
+} else throw new Error(`Unsupported build host: ${process.platform}-${process.arch}`);
+execFileSync(process.execPath, [path.join(root, 'scripts/check-iperf3.mjs')], { stdio: 'inherit' });

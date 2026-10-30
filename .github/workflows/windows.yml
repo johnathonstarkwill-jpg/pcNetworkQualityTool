@@ -1,0 +1,45 @@
+name: Windows build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit and integration tests
+        run: npm test
+      - name: Prepare iperf3 and validate runtime dependencies
+        run: npm run fetch:iperf3
+      - name: Build Windows x64 installer
+        run: npm run dist -- --win --x64 --publish never
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: PC-Network-Quality-Tool-Windows-x64
+          path: |
+            release/*.exe
+            release/*.blockmap
+          if-no-files-found: error
+          retention-days: 30
