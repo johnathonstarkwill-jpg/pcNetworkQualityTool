@@ -285,3 +285,5 @@ button:hover {
 .measurement-report figcaption { margin: 8px 0; font-weight: 600; }
 .live-trend p { color: #52636f; }
 .live-trend svg { display: block; }
+
+.network-guidance { padding: 10px 16px; margin-bottom: 16px; background: #eef3f6; border-radius: 8px; color: #52636f; font-size: 14px; }

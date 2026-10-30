@@ -67,3 +67,13 @@ report covers the three iperf throughput/loss/jitter phases.
   the same subnet.
 - iperf result empty / error: confirm `iperf3 -s` is running on the server and
   the bundled binary exists for the client's platform.
+
+
+## 自动发现与权限（0.1.1）
+
+- 服务端按每张局域网网卡的 IPv4/掩码计算子网广播地址，并绑定对应源地址发送通告；不再只向 255.255.255.255 发送。VPN 隧道与 198.18/15 测试网段不参与自动发现，仍可手动 IP 连接。
+- 客户端同时接收 UDP 48101 通告，并向 UDP 48102 发送查询；服务端单播回复查询的源端口。每张网卡独立处理，网络切换后自动刷新。
+- macOS：首次使用允许本地网络访问；拒绝过时，到系统设置 → 隐私与安全性 → 本地网络，启用 PC Network Quality Tool，然后完整退出并重新打开。临时签名无法提供 Apple 正式签名的稳定身份保证；升级后可能需要重新授权。
+- Windows：将可信局域网设为专用网络，并允许程序的入站 TCP 48200、UDP 48101/48102；iperf3 需要 TCP/UDP 5201。不要通过关闭防火墙排障。
+- 若广播受路由器隔离或策略限制，客户端手动输入服务端物理网卡的 IP；不要默认使用 VPN 的 198.18.* 地址。
+- EHOSTUNREACH 也可能由 macOS 本地网络权限拒绝导致，不应直接断定两台电脑不在同一网段。

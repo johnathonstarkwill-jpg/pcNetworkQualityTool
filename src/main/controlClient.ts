@@ -168,7 +168,7 @@ export class ControlClient extends EventEmitter {
       settled = true;
       this.runAbort?.abort();
       console.error("control client socket error:", error.message);
-      this.fail("连接失败，请检查服务器 IP 与防火墙设置");
+      this.fail(`连接失败（${(error as NodeJS.ErrnoException).code ?? error.message}）：请检查服务器 IP、本地网络权限、防火墙和 VPN 局域网设置`);
     });
     socket.on("close", () => {
       if (settled || this.intentionalClose || this.socket !== socket) return;

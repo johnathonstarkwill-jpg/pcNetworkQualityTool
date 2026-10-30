@@ -9,6 +9,8 @@ extraResources:
   - from: assets/iperf3
     to: iperf3
 mac:
+  extendInfo:
+    NSLocalNetworkUsageDescription: "用于发现局域网中的测试电脑，并测量电脑之间的带宽、延迟、丢包和抖动。"
   icon: build/icon.png
   target:
     - dmg

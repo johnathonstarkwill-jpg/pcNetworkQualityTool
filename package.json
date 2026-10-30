@@ -1,6 +1,6 @@
 {
   "name": "pc-network-quality-tool",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Offline Electron desktop tool for PC-to-PC network quality testing.",
   "main": "dist/main/main.js",
   "type": "module",

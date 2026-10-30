@@ -75,7 +75,7 @@ export class ControlServer extends EventEmitter {
         if (this.netServer === netServer) { this.netServer = undefined; this.listening = false; }
         reject(error);
       });
-      netServer.listen(port, () => {
+      netServer.listen(port, "0.0.0.0", () => {
         this.netServer = netServer;
         this.listening = true;
         this.localAddresses = listLocalIpv4Addresses();

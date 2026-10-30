@@ -137,6 +137,7 @@ function ServerScreen({ suites, onBack }: { suites: SuiteView[]; onBack: () => v
           返回
         </button>
       </header>
+      <NetworkGuidance />
       <section className="grid">
         <div className="panel">
           <h2>本机地址</h2>
@@ -248,6 +249,7 @@ function ClientScreen({ onBack }: { onBack: () => void }) {
         </div>
       ) : null}
       <section className="panel">
+        <NetworkGuidance />
         <h2>服务器搜索</h2>
         {state && state.discoveredServers.length > 0 ? (
           <ul className="server-list">
@@ -377,4 +379,10 @@ function LiveTrend({ progress }: { progress?: LiveProgress }) {
     <p>{PHASE_LABELS[progress.phaseId] ?? progress.phaseId} · 最近 120 个采样区间 · {progress.intervals[0].side === "receiver" ? "接收端" : "发送端"} Mbps</p>
     <div dangerouslySetInnerHTML={{ __html: throughputSvg(progress.intervals) }} />
   </section>;
+}
+
+function NetworkGuidance() {
+  const [messages, setMessages] = useState<string[]>([]);
+  useEffect(() => { if (window.networkTool) void window.networkTool.getPermissionGuidance().then(g => setMessages(g.messages)); }, []);
+  return messages.length ? <aside className="network-guidance">{messages.map(m => <p key={m}>{m}</p>)}<p>自动发现失败不代表测速服务不可用，可使用同一局域网的 IP 手动连接。VPN／代理需允许局域网通信。</p></aside> : null;
 }
